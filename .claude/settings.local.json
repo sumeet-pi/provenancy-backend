@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m py_compile app/main.py app/database.py app/models.py app/schemas.py app/crud.py app/config.py app/routes/example.py)",
+      "Bash(nslookup db.nbtvpmkqxctkzqfdrmiy.supabase.co)"
+    ]
+  }
+}
