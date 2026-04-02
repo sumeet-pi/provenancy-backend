@@ -13,6 +13,8 @@ from app.database import init_db
 from app.schemas import HealthResponse
 from app.routes.example import router as users_router
 
+from sqlalchemy import text
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
