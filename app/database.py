@@ -42,5 +42,5 @@ def init_db() -> None:
     Initialize database by creating all tables.
     Called on application startup.
     """
-    from app.models import User  # noqa: F401 - Import to register models
+    from app.models import User, StudentProfile, SupervisorProfile  # noqa: F401 - Import to register models
     Base.metadata.create_all(bind=engine)

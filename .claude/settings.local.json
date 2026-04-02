@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(python3 -m py_compile app/main.py app/database.py app/models.py app/schemas.py app/crud.py app/config.py app/routes/example.py)",
-      "Bash(nslookup db.nbtvpmkqxctkzqfdrmiy.supabase.co)"
+      "Bash(nslookup db.nbtvpmkqxctkzqfdrmiy.supabase.co)",
+      "Read(//d D:/Project 6th sem Provenancy/**)",
+      "Bash(pip install:*)",
+      "Bash(curl:*)",
+      "Bash(python:*)"
     ]
   }
 }

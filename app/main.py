@@ -11,9 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import init_db
 from app.schemas import HealthResponse
-from app.routes.example import router as users_router
+from app.auth import router as auth_router
 
-from sqlalchemy import text
+from sqlalchemy import text, create_engine
 
 # Configure logging
 logging.basicConfig(
@@ -78,7 +78,7 @@ def health_check() -> HealthResponse:
     db_status = "healthy"
     try:
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
     except Exception as e:
         logger.error(f"Database health check failed: {e}")
         db_status = "unhealthy"
@@ -91,7 +91,7 @@ def health_check() -> HealthResponse:
 
 
 # ============== Include Routers ==============
-app.include_router(users_router)
+app.include_router(auth_router)
 
 
 # ============== Root Endpoint ==============
