@@ -4,9 +4,26 @@ Schemas define the structure of data exchanged via API.
 """
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
-from pydantic import BaseModel, EmailStr, ConfigDict
+from pydantic import BaseModel, EmailStr, ConfigDict, field_validator, field_serializer
+
+
+# ============== Enums ==============
+
+class EngagementStatus(str, Enum):
+    """Engagement status enumeration."""
+    DRAFT = "draft"
+    PENDING = "pending"
+    VERIFIED = "verified"
+    REJECTED = "rejected"
+    EDIT_REQUESTED = "edit_requested"
+
+
+class VerificationType(str, Enum):
+    """Verification type enumeration."""
+    INSTITUTIONAL = "institutional"
+    INDEPENDENT = "independent"
 
 
 # ============== Enums ==============
@@ -142,3 +159,199 @@ class HealthResponse(BaseModel):
     status: str
     database: str
     version: str
+
+
+# ============== Skill Schemas ==============
+
+class SkillCreate(BaseModel):
+    """Schema for creating a declared skill."""
+    name: str
+    category: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not v:
+            raise ValueError("Skill name cannot be empty")
+        if len(v) < 2 or len(v) > 50:
+            raise ValueError("Skill name must be between 2 and 50 characters")
+        return v
+
+
+class SkillResponse(BaseModel):
+    """Schema for skill response."""
+    id: UUID
+    name: str
+    category: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DeclaredSkillResponse(BaseModel):
+    """Schema for declared skill response."""
+    id: UUID
+    skill: SkillResponse
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SkillListResponse(BaseModel):
+    """Schema for skill list response."""
+    declared: List[SkillResponse] = []
+    verified: List[SkillResponse] = []
+
+
+class PublicSkillResponse(BaseModel):
+    """Schema for public skill response."""
+    declared: List[SkillResponse] = []
+    verified: List[SkillResponse] = []
+
+
+# ============== Engagement Schemas ==============
+
+class EngagementCreate(BaseModel):
+    """Schema for creating an engagement."""
+    organization_name: str
+    role: str
+    start_date: datetime
+    end_date: Optional[datetime] = None
+    summary: Optional[str] = None
+    highlights: Optional[List[str]] = None
+    skills: Optional[List[str]] = None
+    links: Optional[List[str]] = None
+
+    @field_validator("summary")
+    @classmethod
+    def validate_summary(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            words = v.split()
+            if not (150 <= len(words) <= 250):
+                raise ValueError("Summary must be between 150 and 250 words")
+        return v
+
+    @field_validator("highlights")
+    @classmethod
+    def validate_highlights(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is not None and len(v) > 5:
+            raise ValueError("Highlights must have at most 5 items")
+        return v
+
+    @field_validator("skills")
+    @classmethod
+    def validate_skills(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is not None and len(v) > 5:
+            raise ValueError("Skills must have at most 5 items")
+        return v
+
+    @field_validator("links")
+    @classmethod
+    def validate_links(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is not None:
+            for link in v:
+                if link and not (link.startswith("http://") or link.startswith("https://")):
+                    raise ValueError("Links must be valid URLs starting with http:// or https://")
+        return v
+
+    @field_validator("end_date")
+    @classmethod
+    def validate_dates(cls, v: Optional[datetime], info) -> Optional[datetime]:
+        start_date = info.data.get("start_date")
+        if start_date is not None and v is not None and v < start_date:
+            raise ValueError("End date must be after or equal to start date")
+        return v
+
+
+class EngagementUpdate(BaseModel):
+    """
+    Schema for updating an engagement. All fields are optional for partial updates.
+
+    Note: Cannot modify engagement if status = "verified" (enforced at API layer, not schema).
+    """
+    organization_name: Optional[str] = None
+    role: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    summary: Optional[str] = None
+    highlights: Optional[List[str]] = None
+    skills: Optional[List[str]] = None
+    links: Optional[List[str]] = None
+
+    @field_validator("summary")
+    @classmethod
+    def validate_summary(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            words = v.split()
+            if not (150 <= len(words) <= 250):
+                raise ValueError("Summary must be between 150 and 250 words")
+        return v
+
+    @field_validator("highlights")
+    @classmethod
+    def validate_highlights(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is not None and len(v) > 5:
+            raise ValueError("Highlights must have at most 5 items")
+        return v
+
+    @field_validator("skills")
+    @classmethod
+    def validate_skills(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is not None and len(v) > 5:
+            raise ValueError("Skills must have at most 5 items")
+        return v
+
+    @field_validator("links")
+    @classmethod
+    def validate_links(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is not None:
+            for link in v:
+                if link and not (link.startswith("http://") or link.startswith("https://")):
+                    raise ValueError("Links must be valid URLs starting with http:// or https://")
+        return v
+
+    @field_validator("end_date")
+    @classmethod
+    def validate_dates(cls, v: Optional[datetime], info) -> Optional[datetime]:
+        start_date = info.data.get("start_date")
+        if start_date is not None and v is not None and v < start_date:
+            raise ValueError("End date must be after or equal to start date")
+        return v
+
+
+class EngagementResponse(BaseModel):
+    """Schema for engagement response."""
+    id: UUID
+    student_profile_id: UUID
+    supervisor_profile_id: Optional[UUID] = None
+    supervisor_ref: Optional[str] = None
+    organization_name: str
+    role: str
+    start_date: datetime
+    end_date: Optional[datetime] = None
+    summary: Optional[str] = None
+    highlights: Optional[List[str]] = None
+    links: Optional[List[str]] = None
+    status: EngagementStatus
+    rejection_reason: Optional[str] = None
+    verified_at: Optional[datetime] = None
+    block_hash: Optional[str] = None
+    verification_type: Optional[VerificationType] = None
+    created_at: datetime
+    updated_at: datetime
+    skills: List[SkillResponse] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EngagementListResponse(BaseModel):
+    """Schema for engagement list response."""
+    id: UUID
+    organization_name: str
+    role: str
+    start_date: datetime
+    end_date: Optional[datetime] = None
+    status: EngagementStatus
+    verified_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
