@@ -152,6 +152,143 @@ class LogoutResponse(BaseModel):
     message: str
 
 
+# ============== Student Profile Update Schemas ==============
+
+class StudentProfileUpdateRequest(BaseModel):
+    """Schema for updating student profile."""
+    full_name: Optional[str] = None
+    title: Optional[str] = None
+    bio: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    institution: Optional[str] = None
+
+    @field_validator("full_name", "title", "bio", "linkedin_url", "institution")
+    @classmethod
+    def trim_strings(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            v = v.strip()
+        return v
+
+    @field_validator("linkedin_url")
+    @classmethod
+    def validate_linkedin(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v.strip():
+            if not v.startswith(("http://", "https://")):
+                raise ValueError("LinkedIn URL must start with http:// or https://")
+            if "linkedin.com" not in v.lower():
+                raise ValueError("LinkedIn URL must be a valid LinkedIn URL")
+        return v
+
+
+class StudentProfileUpdateResponse(BaseModel):
+    """Schema for student profile update response."""
+    message: str
+    profile: "StudentProfileResponse"
+    profile_complete: bool
+
+
+# ============== Student Public Profile Schemas ==============
+
+class StudentPublicResponse(BaseModel):
+    """Schema for public student profile view."""
+    id: UUID
+    full_name: str
+    title: Optional[str] = None
+    bio: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    institution: Optional[str] = None
+    created_at: datetime
+    verified_engagements: List["VerifiedEngagementPublic"] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class VerifiedEngagementPublic(BaseModel):
+    """Schema for verified engagement in public view."""
+    id: UUID
+    organization_name: str
+    role: str
+    start_date: datetime
+    end_date: Optional[datetime] = None
+    verification_type: Optional[VerificationType] = None
+    verified_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============== Supervisor Profile Update Schemas ==============
+
+class SupervisorProfileUpdateRequest(BaseModel):
+    """Schema for updating supervisor profile."""
+    full_name: Optional[str] = None
+    designation: Optional[str] = None
+    organization: Optional[str] = None
+    bio: Optional[str] = None
+    linkedin_url: Optional[str] = None
+
+    @field_validator("full_name", "designation", "organization", "bio", "linkedin_url")
+    @classmethod
+    def trim_strings(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            v = v.strip()
+        return v
+
+    @field_validator("linkedin_url")
+    @classmethod
+    def validate_linkedin(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v.strip():
+            if not v.startswith(("http://", "https://")):
+                raise ValueError("LinkedIn URL must start with http:// or https://")
+            if "linkedin.com" not in v.lower():
+                raise ValueError("LinkedIn URL must be a valid LinkedIn URL")
+        return v
+
+
+class SupervisorProfileUpdateResponse(BaseModel):
+    """Schema for supervisor profile update response."""
+    message: str
+    profile: "SupervisorProfileResponse"
+    profile_complete: bool
+
+
+# ============== Supervisor Public Profile Schemas ==============
+
+class VerifiedEngagementSupervisorPublic(BaseModel):
+    """Schema for verified engagement in supervisor public view."""
+    id: UUID
+    student_full_name: str
+    organization_name: str
+    role: str
+    start_date: datetime
+    end_date: Optional[datetime] = None
+    verification_type: Optional[VerificationType] = None
+    verified_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SupervisorPublicResponse(BaseModel):
+    """Schema for public supervisor profile view."""
+    id: UUID
+    full_name: str
+    designation: Optional[str] = None
+    organization: Optional[str] = None
+    bio: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    trust_tier: TrustTier
+    created_at: datetime
+    verified_engagements: List["VerifiedEngagementSupervisorPublic"] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# Update forward references
+StudentProfileUpdateResponse.model_rebuild()
+StudentPublicResponse.model_rebuild()
+SupervisorProfileUpdateResponse.model_rebuild()
+SupervisorPublicResponse.model_rebuild()
+
+
 # ============== Health Check Schema ==============
 
 class HealthResponse(BaseModel):

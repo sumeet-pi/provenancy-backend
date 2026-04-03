@@ -16,6 +16,10 @@ engine = create_engine(
     pool_pre_ping=True,
     pool_size=5,
     max_overflow=10,
+    # psycopg3 caches prepared statements server-side by default.
+    # On hot-reload the old statements still exist on the connection,
+    # causing DuplicatePreparedStatement errors. Disabling them here.
+    connect_args={"prepare_threshold": None},
 )
 
 # Session factory for database operations

@@ -14,6 +14,8 @@ from app.config import settings
 from app.database import init_db
 from app.schemas import HealthResponse
 from app.auth import router as auth_router
+from app.routes.student import router as student_router
+from app.routes.supervisor import router as supervisor_router
 
 from sqlalchemy import text
 
@@ -137,6 +139,8 @@ def health_check() -> HealthResponse:
 
 # ============== Include Routers ==============
 app.include_router(auth_router)
+app.include_router(student_router)
+app.include_router(supervisor_router)
 
 
 # ============== Root Endpoint ==============
