@@ -5,7 +5,9 @@ A production-ready FastAPI backend server connected to PostgreSQL (Supabase).
 """
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
@@ -13,7 +15,7 @@ from app.database import init_db
 from app.schemas import HealthResponse
 from app.auth import router as auth_router
 
-from sqlalchemy import text, create_engine
+from sqlalchemy import text
 
 # Configure logging
 logging.basicConfig(
@@ -62,6 +64,49 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ============== Global Exception Handlers ==============
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(
+    request: Request,
+    exc: RequestValidationError
+) -> JSONResponse:
+    """
+    Handle validation errors with a clean structured response.
+    """
+    errors = []
+    for error in exc.errors():
+        field = ".".join(str(loc) for loc in error["loc"] if loc != "body")
+        errors.append({
+            "field": field,
+            "message": error["msg"]
+        })
+
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "detail": "Validation error",
+            "errors": errors
+        }
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(
+    request: Request,
+    exc: Exception
+) -> JSONResponse:
+    """
+    Catch all unhandled exceptions and return a generic error response.
+    """
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "Internal server error"}
+    )
+
 
 # ============== Health Check Endpoint ==============
 @app.get("/health", response_model=HealthResponse, tags=["Health"])

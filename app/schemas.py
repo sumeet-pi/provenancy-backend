@@ -31,8 +31,6 @@ class UserSignupRequest(BaseModel):
     email: EmailStr
     password: str
     role: UserRole
-    institution: Optional[str] = None  # For students
-    organization: Optional[str] = None  # For supervisors
 
 
 class UserLoginRequest(BaseModel):
@@ -45,6 +43,8 @@ class TokenResponse(BaseModel):
     """Schema for token response."""
     access_token: str
     token_type: str = "bearer"
+    role: UserRole
+    ledger_id: str
 
 
 # ============== User Schemas ==============
@@ -102,12 +102,37 @@ class StudentCompleteResponse(BaseModel):
     """Complete response for student including user and profile data."""
     user: UserResponse
     profile: StudentProfileResponse
+    profile_complete: bool
 
 
 class SupervisorCompleteResponse(BaseModel):
     """Complete response for supervisor including user and profile data."""
     user: UserResponse
     profile: SupervisorProfileResponse
+    profile_complete: bool
+
+
+# ============== Profile Completion Schemas ==============
+
+class CompleteProfileRequest(BaseModel):
+    """Schema for completing/updating profile (works for both roles)."""
+    institution: Optional[str] = None
+    bio: Optional[str] = None
+    title: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    organization: Optional[str] = None
+    designation: Optional[str] = None
+
+
+class CompleteProfileResponse(BaseModel):
+    """Schema for complete profile response."""
+    message: str
+    profile: StudentProfileResponse | SupervisorProfileResponse
+
+
+class LogoutResponse(BaseModel):
+    """Schema for logout response."""
+    message: str
 
 
 # ============== Health Check Schema ==============
