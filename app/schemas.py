@@ -49,6 +49,20 @@ class UserSignupRequest(BaseModel):
     password: str
     role: UserRole
 
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, v: str) -> str:
+        """
+        Validate full_name: trim whitespace, reject empty/whitespace-only,
+        and enforce max length of 150 characters.
+        """
+        v = v.strip()
+        if not v:
+            raise ValueError("Full name cannot be empty")
+        if len(v) > 150:
+            raise ValueError("Full name must not exceed 150 characters")
+        return v
+
 
 class UserLoginRequest(BaseModel):
     """Schema for user login request."""

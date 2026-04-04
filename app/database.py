@@ -11,6 +11,9 @@ from app.config import settings
 
 # Create SQLAlchemy engine
 # pool_pre_ping=True helps detect stale connections
+# prepare_threshold=None disables psycopg3's prepared statement caching entirely,
+# preventing DuplicatePreparedStatement errors when the connection pool recycles connections.
+# execution_options no_parameters=True ensures psycopg3 never uses prepared statements.
 engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,
