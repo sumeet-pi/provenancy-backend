@@ -21,12 +21,20 @@
    - [GET /auth/me](#get-authme)
    - [PUT /auth/complete-profile](#put-authcomplete-profile)
    - [POST /auth/logout](#post-authlogout)
-7. [Data Schemas Reference](#data-schemas-reference)
-8. [Auto-Generated Fields](#auto-generated-fields)
-9. [Trust Tier Logic](#trust-tier-logic)
-10. [Frontend Integration Notes](#frontend-integration-notes)
-11. [CORS Configuration](#cors-configuration)
-12. [Environment Variables](#environment-variables)
+7. [Routes — Student (`/student`)](#routes--student-student)
+   - [GET /student/me](#get-studentme)
+   - [PUT /student/me](#put-studentme)
+   - [GET /student/{student_id}/public](#get-studentstudent_idpublic)
+8. [Routes — Supervisor (`/supervisor`)](#routes--supervisor-supervisor)
+   - [GET /supervisor/me](#get-supervisorme)
+   - [PUT /supervisor/me](#put-supervisorme)
+   - [GET /supervisor/{supervisor_id}/public](#get-supervisorsupervisor_idpublic)
+9. [Data Schemas Reference](#data-schemas-reference)
+10. [Auto-Generated Fields](#auto-generated-fields)
+11. [Trust Tier Logic](#trust-tier-logic)
+12. [Frontend Integration Notes](#frontend-integration-notes)
+13. [CORS Configuration](#cors-configuration)
+14. [Environment Variables](#environment-variables)
 
 ---
 
@@ -609,6 +617,422 @@ Authorization: Bearer <access_token>
 | `403`  | `"User account is inactive"`            | Account has been deactivated              | Clear token, redirect to login        |
 
 > **Frontend tip:** Even if this call fails (e.g. expired token), always clear the local token and redirect to login. Do not block logout on a server error.
+
+---
+
+## Routes — Student (`/student`)
+
+All routes in this section are prefixed with `/student`.
+
+> **Role guard:** All `/student/me` endpoints require the authenticated user to have `role = "student"`. A supervisor token will receive `403 Forbidden`.
+
+---
+
+### `GET /student/me`
+
+Get the current student's private profile — includes the embedded `UserResponse` block and a `profile_complete` flag. Use this to hydrate the student dashboard.
+
+**Authentication:** Required — Bearer Token (`role = "student"` only)
+
+**Request:** No body required.
+
+```
+Authorization: Bearer <access_token>
+```
+
+**Response `200 OK`:**
+
+```json
+{
+  "message": "Profile retrieved successfully",
+  "profile": {
+    "id": "7f6c1d20-a4b3-4c5e-8f9d-1a2b3c4d5e6f",
+    "user_id": "550e8400-e29b-41d4-a716-446655440000",
+    "full_name": "Alex Carter",
+    "title": "Software Engineering Intern",
+    "bio": "Final year CS student interested in distributed systems.",
+    "linkedin_url": "https://linkedin.com/in/alexcarter",
+    "institution": "MIT",
+    "created_at": "2026-04-01T10:30:00Z",
+    "updated_at": "2026-04-01T11:00:00Z"
+  },
+  "profile_complete": true,
+  "ledger_id": "PRV-2026-0001"
+}
+```
+
+#### Response Fields
+
+| Field              | Type      | Description                                                   |
+| ------------------ | --------- | ------------------------------------------------------------- |
+| `message`          | `string`  | Always `"Profile retrieved successfully"`                     |
+| `profile`          | `object`  | Full `StudentProfileResponse` object (see schema below)       |
+| `profile_complete` | `boolean` | `true` if `profile.institution` is set                        |
+| `ledger_id`        | `string`  | User's public identifier (e.g. `PRV-2026-0001`)               |
+
+#### Possible Errors
+
+| Status | `detail` value                          | When it occurs                          | Frontend action                                 |
+| ------ | --------------------------------------- | --------------------------------------- | ----------------------------------------------- |
+| `401`  | `"Invalid authentication credentials"` | Token missing, malformed, or expired    | Clear token, redirect to login                  |
+| `401`  | `"User not found"`                      | Token valid but user deleted from DB    | Clear token, redirect to login                  |
+| `403`  | `"User account is inactive"`            | Account deactivated                     | Toast: "Account deactivated", redirect to login |
+| `403`  | `"Supervisor access required"`          | Supervisor token used on student route  | Redirect to correct dashboard                   |
+| `404`  | `"Student profile not found"`           | DB integrity issue — profile row missing | Toast: "Profile error, contact support"        |
+
+---
+
+### `PUT /student/me`
+
+Update the current student's profile fields. All fields are optional — send only the ones you want to change. At least one non-empty field must be provided.
+
+**Authentication:** Required — Bearer Token (`role = "student"` only)
+
+**Request Body:** `application/json`
+
+```json
+{
+  "full_name": "Alex Carter",
+  "title": "Software Engineering Intern",
+  "bio": "Final year CS student interested in distributed systems.",
+  "linkedin_url": "https://linkedin.com/in/alexcarter",
+  "institution": "MIT"
+}
+```
+
+#### Request Fields
+
+| Field          | Type     | Required    | Validation                                          |
+| -------------- | -------- | ----------- | --------------------------------------------------- |
+| `full_name`    | `string` | ❌ Optional | Trimmed; max 150 chars                              |
+| `title`        | `string` | ❌ Optional | Trimmed whitespace                                  |
+| `bio`          | `string` | ❌ Optional | Trimmed whitespace                                  |
+| `linkedin_url` | `string` | ❌ Optional | Must start with `http(s)://` and contain `linkedin.com` |
+| `institution`  | `string` | ❌ Optional | Setting this makes `profile_complete = true`        |
+
+> **Note:** At least one field with a non-empty value must be provided, otherwise a `400` is returned.
+
+**Response `200 OK`:**
+
+```json
+{
+  "message": "Profile updated successfully",
+  "profile": {
+    "id": "7f6c1d20-a4b3-4c5e-8f9d-1a2b3c4d5e6f",
+    "user_id": "550e8400-e29b-41d4-a716-446655440000",
+    "full_name": "Alex Carter",
+    "title": "Software Engineering Intern",
+    "bio": "Final year CS student interested in distributed systems.",
+    "linkedin_url": "https://linkedin.com/in/alexcarter",
+    "institution": "MIT",
+    "created_at": "2026-04-01T10:30:00Z",
+    "updated_at": "2026-04-01T11:45:00Z"
+  },
+  "profile_complete": true
+}
+```
+
+> **Note:** The `PUT /student/me` response does **not** include `ledger_id` (unlike `GET /student/me`).
+
+#### Possible Errors
+
+| Status | `detail` value                          | When it occurs                               | Frontend action                                 |
+| ------ | --------------------------------------- | -------------------------------------------- | ----------------------------------------------- |
+| `400`  | `"No fields provided for update"`       | All fields are `null` or empty strings       | Toast: "Please fill in at least one field"      |
+| `401`  | `"Invalid authentication credentials"` | Token missing, malformed, or expired         | Clear token, redirect to login                  |
+| `401`  | `"User not found"`                      | Token valid but user deleted from DB         | Clear token, redirect to login                  |
+| `403`  | `"User account is inactive"`            | Account deactivated                          | Toast: "Account deactivated", redirect to login |
+| `403`  | `"Supervisor access required"`          | Supervisor token used on student route       | Redirect to correct dashboard                   |
+| `404`  | `"Student profile not found"`           | DB integrity issue — profile row missing     | Toast: "Profile error, contact support"         |
+| `422`  | `"Validation error"` + `errors[]`       | Wrong field types or invalid `linkedin_url`  | Map `errors[].field` to form field messages     |
+
+---
+
+### `GET /student/{student_id}/public`
+
+Get a student's public-facing profile by their **profile UUID** (`StudentProfile.id`). Includes only verified engagements. No authentication required — suitable for public portfolio links.
+
+**Authentication:** None required
+
+**Path Parameter:**
+
+| Parameter    | Type            | Description                                  |
+| ------------ | --------------- | -------------------------------------------- |
+| `student_id` | `string` (UUID) | The student's profile UUID (`StudentProfile.id`) |
+
+**Request:** No body required.
+
+**Response `200 OK`:**
+
+```json
+{
+  "id": "7f6c1d20-a4b3-4c5e-8f9d-1a2b3c4d5e6f",
+  "ledger_id": "PRV-2026-0001",
+  "full_name": "Alex Carter",
+  "title": "Software Engineering Intern",
+  "bio": "Final year CS student interested in distributed systems.",
+  "linkedin_url": "https://linkedin.com/in/alexcarter",
+  "institution": "MIT",
+  "created_at": "2026-04-01T10:30:00Z",
+  "verified_engagements": [
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "organization_name": "Acme Corp",
+      "role": "Backend Engineer Intern",
+      "start_date": "2025-06-01T00:00:00Z",
+      "end_date": "2025-08-31T00:00:00Z",
+      "verification_type": "institutional",
+      "verified_at": "2025-09-02T14:22:00Z"
+    }
+  ]
+}
+```
+
+#### Response Fields
+
+| Field                  | Type              | Description                                               |
+| ---------------------- | ----------------- | --------------------------------------------------------- |
+| `id`                   | `string` (UUID)   | Student profile UUID                                      |
+| `ledger_id`            | `string`          | Public ledger ID (e.g. `PRV-2026-0001`)                   |
+| `full_name`            | `string`          | Student's display name                                    |
+| `title`                | `string` \| `null` | Current role/title (optional)                            |
+| `bio`                  | `string` \| `null` | Short bio (optional)                                     |
+| `linkedin_url`         | `string` \| `null` | LinkedIn URL (optional)                                  |
+| `institution`          | `string` \| `null` | Affiliated institution (optional)                        |
+| `created_at`           | `string` (ISO 8601 UTC) | Profile creation date                               |
+| `verified_engagements` | `array`           | List of verified engagements only (empty array if none)   |
+
+#### `verified_engagements[]` Item Fields
+
+| Field               | Type                                          | Description                                  |
+| ------------------- | --------------------------------------------- | -------------------------------------------- |
+| `id`                | `string` (UUID)                               | Engagement UUID                              |
+| `organization_name` | `string`                                      | Name of the organisation                     |
+| `role`              | `string`                                      | Role held during the engagement              |
+| `start_date`        | `string` (ISO 8601 UTC)                       | Engagement start date                        |
+| `end_date`          | `string` (ISO 8601 UTC) \| `null`             | Engagement end date (null if ongoing)        |
+| `verification_type` | `"institutional"` \| `"independent"` \| `null` | Supervisor's trust tier at time of verification |
+| `verified_at`       | `string` (ISO 8601 UTC) \| `null`             | When the engagement was verified             |
+
+#### Possible Errors
+
+| Status | `detail` value                    | When it occurs                                                      | Frontend action                        |
+| ------ | --------------------------------- | ------------------------------------------------------------------- | -------------------------------------- |
+| `400`  | `"Invalid student ID format"`     | `student_id` path param is not a valid UUID                         | Show 404 page                          |
+| `404`  | `"Student profile not found"`     | No active student profile with that UUID, or account is deactivated | Show 404 page                          |
+
+---
+
+## Routes — Supervisor (`/supervisor`)
+
+All routes in this section are prefixed with `/supervisor`.
+
+> **Role guard:** All `/supervisor/me` endpoints require the authenticated user to have `role = "supervisor"`. A student token will receive `403 Forbidden`.
+
+---
+
+### `GET /supervisor/me`
+
+Get the current supervisor's private profile — includes the full profile object, `profile_complete` flag, and `ledger_id`. Use this to hydrate the supervisor dashboard.
+
+**Authentication:** Required — Bearer Token (`role = "supervisor"` only)
+
+**Request:** No body required.
+
+```
+Authorization: Bearer <access_token>
+```
+
+**Response `200 OK`:**
+
+```json
+{
+  "message": "Profile retrieved successfully",
+  "profile": {
+    "id": "8g7d2e30-b5c4-5d6f-9g0e-2b3c4d5e6f7a",
+    "user_id": "660f9500-f30c-52e5-b827-557766551111",
+    "full_name": "James Vance",
+    "designation": "Associate Professor",
+    "organization": "Stanford University",
+    "bio": "Researcher in AI safety and interpretability.",
+    "linkedin_url": "https://linkedin.com/in/jvance",
+    "email_domain": "stanford.edu",
+    "trust_tier": "institutional",
+    "created_at": "2026-03-15T08:00:00Z",
+    "updated_at": "2026-04-01T11:00:00Z"
+  },
+  "profile_complete": true,
+  "ledger_id": "PRV-SUP-8821"
+}
+```
+
+#### Response Fields
+
+| Field              | Type      | Description                                                    |
+| ------------------ | --------- | -------------------------------------------------------------- |
+| `message`          | `string`  | Always `"Profile retrieved successfully"`                      |
+| `profile`          | `object`  | Full `SupervisorProfileResponse` object (see schema below)     |
+| `profile_complete` | `boolean` | `true` if `profile.organization` is set                        |
+| `ledger_id`        | `string`  | User's public identifier (e.g. `PRV-SUP-8821`)                 |
+
+#### Possible Errors
+
+| Status | `detail` value                          | When it occurs                           | Frontend action                                  |
+| ------ | --------------------------------------- | ---------------------------------------- | ------------------------------------------------ |
+| `401`  | `"Invalid authentication credentials"` | Token missing, malformed, or expired     | Clear token, redirect to login                   |
+| `401`  | `"User not found"`                      | Token valid but user deleted from DB     | Clear token, redirect to login                   |
+| `403`  | `"User account is inactive"`            | Account deactivated                      | Toast: "Account deactivated", redirect to login  |
+| `403`  | `"Supervisor access required"`          | Student token used on supervisor route   | Redirect to correct dashboard                    |
+| `404`  | `"Supervisor profile not found"`        | DB integrity issue — profile row missing | Toast: "Profile error, contact support"          |
+
+---
+
+### `PUT /supervisor/me`
+
+Update the current supervisor's profile fields. All fields are optional — send only the ones you want to change. At least one non-empty field must be provided.
+
+**Authentication:** Required — Bearer Token (`role = "supervisor"` only)
+
+**Request Body:** `application/json`
+
+```json
+{
+  "full_name": "James Vance",
+  "designation": "Associate Professor",
+  "organization": "Stanford University",
+  "bio": "Researcher in AI safety and interpretability.",
+  "linkedin_url": "https://linkedin.com/in/jvance"
+}
+```
+
+#### Request Fields
+
+| Field          | Type     | Required    | Validation                                              |
+| -------------- | -------- | ----------- | ------------------------------------------------------- |
+| `full_name`    | `string` | ❌ Optional | Trimmed; max 150 chars                                  |
+| `designation`  | `string` | ❌ Optional | Trimmed whitespace                                      |
+| `organization` | `string` | ❌ Optional | Trimmed; setting this triggers trust tier re-evaluation |
+| `bio`          | `string` | ❌ Optional | Trimmed whitespace                                      |
+| `linkedin_url` | `string` | ❌ Optional | Must start with `http(s)://` and contain `linkedin.com` |
+
+> **Note:** At least one field with a non-empty value must be provided, otherwise a `400` is returned.
+
+> **Trust tier:** Updating `organization` automatically re-evaluates `trust_tier`. See [Trust Tier Logic](#trust-tier-logic).
+
+**Response `200 OK`:**
+
+```json
+{
+  "message": "Profile updated successfully",
+  "profile": {
+    "id": "8g7d2e30-b5c4-5d6f-9g0e-2b3c4d5e6f7a",
+    "user_id": "660f9500-f30c-52e5-b827-557766551111",
+    "full_name": "James Vance",
+    "designation": "Associate Professor",
+    "organization": "Stanford University",
+    "bio": "Researcher in AI safety and interpretability.",
+    "linkedin_url": "https://linkedin.com/in/jvance",
+    "email_domain": "stanford.edu",
+    "trust_tier": "institutional",
+    "created_at": "2026-03-15T08:00:00Z",
+    "updated_at": "2026-04-01T11:45:00Z"
+  },
+  "profile_complete": true
+}
+```
+
+> **Note:** The `PUT /supervisor/me` response does **not** include `ledger_id` (unlike `GET /supervisor/me`).
+
+#### Possible Errors
+
+| Status | `detail` value                          | When it occurs                               | Frontend action                                  |
+| ------ | --------------------------------------- | -------------------------------------------- | ------------------------------------------------ |
+| `400`  | `"No fields provided for update"`       | All fields are `null` or empty strings       | Toast: "Please fill in at least one field"       |
+| `401`  | `"Invalid authentication credentials"` | Token missing, malformed, or expired         | Clear token, redirect to login                   |
+| `401`  | `"User not found"`                      | Token valid but user deleted from DB         | Clear token, redirect to login                   |
+| `403`  | `"User account is inactive"`            | Account deactivated                          | Toast: "Account deactivated", redirect to login  |
+| `403`  | `"Supervisor access required"`          | Student token used on supervisor route       | Redirect to correct dashboard                    |
+| `404`  | `"Supervisor profile not found"`        | DB integrity issue — profile row missing     | Toast: "Profile error, contact support"          |
+| `422`  | `"Validation error"` + `errors[]`       | Wrong field types or invalid `linkedin_url`  | Map `errors[].field` to form field messages      |
+
+---
+
+### `GET /supervisor/{supervisor_id}/public`
+
+Get a supervisor's public-facing profile by their **profile UUID** (`SupervisorProfile.id`). Includes only verified engagements they have verified. No authentication required.
+
+**Authentication:** None required
+
+**Path Parameter:**
+
+| Parameter       | Type            | Description                                       |
+| --------------- | --------------- | ------------------------------------------------- |
+| `supervisor_id` | `string` (UUID) | The supervisor's profile UUID (`SupervisorProfile.id`) |
+
+**Request:** No body required.
+
+**Response `200 OK`:**
+
+```json
+{
+  "id": "8g7d2e30-b5c4-5d6f-9g0e-2b3c4d5e6f7a",
+  "ledger_id": "PRV-SUP-8821",
+  "full_name": "James Vance",
+  "designation": "Associate Professor",
+  "organization": "Stanford University",
+  "bio": "Researcher in AI safety and interpretability.",
+  "linkedin_url": "https://linkedin.com/in/jvance",
+  "trust_tier": "institutional",
+  "created_at": "2026-03-15T08:00:00Z",
+  "verified_engagements": [
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "student_full_name": "Alex Carter",
+      "organization_name": "Acme Corp",
+      "role": "Backend Engineer Intern",
+      "start_date": "2025-06-01T00:00:00Z",
+      "end_date": "2025-08-31T00:00:00Z",
+      "verification_type": "institutional",
+      "verified_at": "2025-09-02T14:22:00Z"
+    }
+  ]
+}
+```
+
+#### Response Fields
+
+| Field                  | Type                              | Description                                              |
+| ---------------------- | --------------------------------- | -------------------------------------------------------- |
+| `id`                   | `string` (UUID)                   | Supervisor profile UUID                                  |
+| `ledger_id`            | `string`                          | Public ledger ID (e.g. `PRV-SUP-8821`)                   |
+| `full_name`            | `string`                          | Supervisor's display name                                |
+| `designation`          | `string` \| `null`                | Job title/designation (optional)                         |
+| `organization`         | `string` \| `null`                | Organisation name (optional)                             |
+| `bio`                  | `string` \| `null`                | Short bio (optional)                                     |
+| `linkedin_url`         | `string` \| `null`                | LinkedIn URL (optional)                                  |
+| `trust_tier`           | `"institutional"` \| `"independent"` | Auto-resolved trust tier                             |
+| `created_at`           | `string` (ISO 8601 UTC)           | Profile creation date                                    |
+| `verified_engagements` | `array`                           | Engagements this supervisor has verified (empty if none) |
+
+#### `verified_engagements[]` Item Fields
+
+| Field               | Type                                          | Description                                        |
+| ------------------- | --------------------------------------------- | -------------------------------------------------- |
+| `id`                | `string` (UUID)                               | Engagement UUID                                    |
+| `student_full_name` | `string`                                      | Name of the student whose engagement was verified  |
+| `organization_name` | `string`                                      | Organisation for the engagement                    |
+| `role`              | `string`                                      | Role held during the engagement                    |
+| `start_date`        | `string` (ISO 8601 UTC)                       | Engagement start date                              |
+| `end_date`          | `string` (ISO 8601 UTC) \| `null`             | Engagement end date                                |
+| `verification_type` | `"institutional"` \| `"independent"` \| `null` | Supervisor's trust tier at time of verification    |
+| `verified_at`       | `string` (ISO 8601 UTC) \| `null`             | When the engagement was verified                   |
+
+#### Possible Errors
+
+| Status | `detail` value                       | When it occurs                                                          | Frontend action |
+| ------ | ------------------------------------ | ----------------------------------------------------------------------- | --------------- |
+| `400`  | `"Invalid supervisor ID format"`     | `supervisor_id` path param is not a valid UUID                          | Show 404 page   |
+| `404`  | `"Supervisor profile not found"`     | No active supervisor profile with that UUID, or account is deactivated  | Show 404 page   |
 
 ---
 

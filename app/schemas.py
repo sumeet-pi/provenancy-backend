@@ -199,6 +199,7 @@ class StudentProfileUpdateResponse(BaseModel):
     message: str
     profile: "StudentProfileResponse"
     profile_complete: bool
+    ledger_id: str
 
 
 # ============== Student Public Profile Schemas ==============
@@ -206,6 +207,7 @@ class StudentProfileUpdateResponse(BaseModel):
 class StudentPublicResponse(BaseModel):
     """Schema for public student profile view."""
     id: UUID
+    ledger_id: str
     full_name: str
     title: Optional[str] = None
     bio: Optional[str] = None
@@ -263,6 +265,7 @@ class SupervisorProfileUpdateResponse(BaseModel):
     message: str
     profile: "SupervisorProfileResponse"
     profile_complete: bool
+    ledger_id: str
 
 
 # ============== Supervisor Public Profile Schemas ==============
@@ -284,6 +287,7 @@ class VerifiedEngagementSupervisorPublic(BaseModel):
 class SupervisorPublicResponse(BaseModel):
     """Schema for public supervisor profile view."""
     id: UUID
+    ledger_id: str
     full_name: str
     designation: Optional[str] = None
     organization: Optional[str] = None

@@ -77,7 +77,8 @@ def get_my_profile(
     return SupervisorProfileUpdateResponse(
         message="Profile retrieved successfully",
         profile=profile_response,
-        profile_complete=profile.organization is not None
+        profile_complete=profile.organization is not None,
+        ledger_id=current_user.ledger_id
     )
 
 
@@ -198,8 +199,12 @@ def get_public_profile(
         for eng in verified_engagements
     ]
 
+    # Get user for ledger_id
+    user = db.query(User).filter(User.id == profile.user_id).first()
+
     return SupervisorPublicResponse(
         id=profile.id,
+        ledger_id=user.ledger_id if user else None,
         full_name=profile.full_name,
         designation=profile.designation,
         organization=profile.organization,
