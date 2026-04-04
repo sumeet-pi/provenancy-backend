@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional, List
 from uuid import UUID
-from pydantic import BaseModel, EmailStr, ConfigDict, field_validator, field_serializer
+from pydantic import BaseModel, EmailStr, ConfigDict, field_validator, field_serializer, ValidationInfo
 
 
 # ============== Enums ==============
@@ -366,8 +366,32 @@ class PublicSkillResponse(BaseModel):
 
 # ============== Engagement Schemas ==============
 
+# Generic/meaningless org names to reject at business logic level
+GENERIC_ORG_NAMES: frozenset = frozenset({
+    "test", "abc", "company", "temp", "dummy", "fake", "example",
+    "my company", "test company", "intern", "internship"
+})
+
+# Generic/meaningless roles to flag for review
+GENERIC_ROLES: frozenset = frozenset({
+    "intern", "employee", "worker", "staff", "team member",
+    "internship", "trainee", "volunteer"
+})
+
+
 class EngagementCreate(BaseModel):
-    """Schema for creating an engagement."""
+    """
+    Schema for creating an engagement.
+
+    Validation rules:
+    - organization_name: 2-150 chars, required
+    - role: 2-150 chars, required
+    - summary: optional, max 500 words (~3000 chars)
+    - highlights: optional list, max 3 items, each max 200 chars
+    - links: optional list, max 5 items, valid URLs
+    - start_date: required, must be <= today
+    - end_date: optional, must be >= start_date
+    """
     organization_name: str
     role: str
     start_date: datetime
@@ -377,44 +401,114 @@ class EngagementCreate(BaseModel):
     skills: Optional[List[str]] = None
     links: Optional[List[str]] = None
 
+    @field_validator("organization_name")
+    @classmethod
+    def validate_organization_name(cls, v: str) -> str:
+        """Validate organization_name: trim whitespace, enforce min/max length."""
+        v = v.strip()
+        if len(v) < 2:
+            raise ValueError("Organization name must be at least 2 characters")
+        if len(v) > 150:
+            raise ValueError("Organization name must not exceed 150 characters")
+        return v
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        """Validate role: trim whitespace, enforce min/max length."""
+        v = v.strip()
+        if len(v) < 2:
+            raise ValueError("Role must be at least 2 characters")
+        if len(v) > 150:
+            raise ValueError("Role must not exceed 150 characters")
+        return v
+
     @field_validator("summary")
     @classmethod
     def validate_summary(cls, v: Optional[str]) -> Optional[str]:
+        """Validate summary: trim whitespace, enforce max length."""
         if v is not None:
+            v = v.strip()
+            if len(v) > 3000:
+                raise ValueError("Summary must not exceed 3000 characters")
             words = v.split()
-            if not (150 <= len(words) <= 250):
-                raise ValueError("Summary must be between 150 and 250 words")
+            if len(words) > 500:
+                raise ValueError("Summary must not exceed 500 words")
         return v
 
     @field_validator("highlights")
     @classmethod
     def validate_highlights(cls, v: Optional[List[str]]) -> Optional[List[str]]:
-        if v is not None and len(v) > 5:
-            raise ValueError("Highlights must have at most 5 items")
+        """Validate highlights: max 3 items, each max 200 chars, no empty strings."""
+        if v is not None:
+            if len(v) > 3:
+                raise ValueError("Highlights must have at most 3 items")
+            for i, item in enumerate(v):
+                if item is None:
+                    raise ValueError(f"Highlight {i + 1} cannot be empty")
+                item = item.strip()
+                if not item:
+                    raise ValueError(f"Highlight {i + 1} cannot be empty")
+                if len(item) > 200:
+                    raise ValueError(f"Highlight {i + 1} must not exceed 200 characters")
+                v[i] = item
         return v
 
     @field_validator("skills")
     @classmethod
     def validate_skills(cls, v: Optional[List[str]]) -> Optional[List[str]]:
-        if v is not None and len(v) > 5:
-            raise ValueError("Skills must have at most 5 items")
+        """Validate skills: max 5 items, no empty strings."""
+        if v is not None:
+            if len(v) > 5:
+                raise ValueError("Skills must have at most 5 items")
+            for item in v:
+                if item is None or not item.strip():
+                    raise ValueError("Skills cannot contain empty items")
         return v
 
     @field_validator("links")
     @classmethod
     def validate_links(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        """Validate links: max 5 items, each must be valid URL."""
         if v is not None:
+            if len(v) > 5:
+                raise ValueError("Links must have at most 5 items")
             for link in v:
-                if link and not (link.startswith("http://") or link.startswith("https://")):
-                    raise ValueError("Links must be valid URLs starting with http:// or https://")
+                if link is None or not link.strip():
+                    raise ValueError("Links cannot contain empty items")
+                link = link.strip()
+                if not (link.startswith("http://") or link.startswith("https://")):
+                    raise ValueError(f"Invalid link '{link}': must start with http:// or https://")
+        return v
+
+    @field_validator("start_date")
+    @classmethod
+    def validate_start_date(cls, v: datetime) -> datetime:
+        """Validate start_date: must be <= today."""
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        # Make v timezone-aware if it isn't
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone.utc)
+        if v > now:
+            raise ValueError("Start date cannot be in the future")
         return v
 
     @field_validator("end_date")
     @classmethod
-    def validate_dates(cls, v: Optional[datetime], info) -> Optional[datetime]:
-        start_date = info.data.get("start_date")
-        if start_date is not None and v is not None and v < start_date:
-            raise ValueError("End date must be after or equal to start date")
+    def validate_end_date(cls, v: Optional[datetime], info: ValidationInfo) -> Optional[datetime]:
+        """Validate end_date: must be >= start_date if provided."""
+        if v is not None:
+            start_date = info.data.get("start_date")
+            if start_date is not None:
+                # Make both timezone-aware
+                from datetime import timezone
+                if v.tzinfo is None:
+                    v = v.replace(tzinfo=timezone.utc)
+                if start_date.tzinfo is None:
+                    start_date = start_date.replace(tzinfo=timezone.utc)
+                if v < start_date:
+                    raise ValueError("End date must be on or after start date")
         return v
 
 
@@ -422,7 +516,16 @@ class EngagementUpdate(BaseModel):
     """
     Schema for updating an engagement. All fields are optional for partial updates.
 
-    Note: Cannot modify engagement if status = "verified" (enforced at API layer, not schema).
+    Validation rules (when provided):
+    - organization_name: 2-150 chars
+    - role: 2-150 chars
+    - summary: max 500 words (~3000 chars)
+    - highlights: max 3 items, each max 200 chars
+    - links: max 5 items, valid URLs
+    - start_date: must be <= today
+    - end_date: must be >= start_date
+
+    Note: Cannot modify engagement if status = "verified" (enforced at API layer).
     """
     organization_name: Optional[str] = None
     role: Optional[str] = None
@@ -433,44 +536,115 @@ class EngagementUpdate(BaseModel):
     skills: Optional[List[str]] = None
     links: Optional[List[str]] = None
 
+    @field_validator("organization_name")
+    @classmethod
+    def validate_organization_name(cls, v: Optional[str]) -> Optional[str]:
+        """Validate organization_name: trim whitespace, enforce min/max length."""
+        if v is not None:
+            v = v.strip()
+            if len(v) < 2:
+                raise ValueError("Organization name must be at least 2 characters")
+            if len(v) > 150:
+                raise ValueError("Organization name must not exceed 150 characters")
+        return v
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: Optional[str]) -> Optional[str]:
+        """Validate role: trim whitespace, enforce min/max length."""
+        if v is not None:
+            v = v.strip()
+            if len(v) < 2:
+                raise ValueError("Role must be at least 2 characters")
+            if len(v) > 150:
+                raise ValueError("Role must not exceed 150 characters")
+        return v
+
     @field_validator("summary")
     @classmethod
     def validate_summary(cls, v: Optional[str]) -> Optional[str]:
+        """Validate summary: trim whitespace, enforce max length."""
         if v is not None:
+            v = v.strip()
+            if len(v) > 3000:
+                raise ValueError("Summary must not exceed 3000 characters")
             words = v.split()
-            if not (150 <= len(words) <= 250):
-                raise ValueError("Summary must be between 150 and 250 words")
+            if len(words) > 500:
+                raise ValueError("Summary must not exceed 500 words")
         return v
 
     @field_validator("highlights")
     @classmethod
     def validate_highlights(cls, v: Optional[List[str]]) -> Optional[List[str]]:
-        if v is not None and len(v) > 5:
-            raise ValueError("Highlights must have at most 5 items")
+        """Validate highlights: max 3 items, each max 200 chars, no empty strings."""
+        if v is not None:
+            if len(v) > 3:
+                raise ValueError("Highlights must have at most 3 items")
+            for i, item in enumerate(v):
+                if item is None:
+                    raise ValueError(f"Highlight {i + 1} cannot be empty")
+                item = item.strip()
+                if not item:
+                    raise ValueError(f"Highlight {i + 1} cannot be empty")
+                if len(item) > 200:
+                    raise ValueError(f"Highlight {i + 1} must not exceed 200 characters")
+                v[i] = item
         return v
 
     @field_validator("skills")
     @classmethod
     def validate_skills(cls, v: Optional[List[str]]) -> Optional[List[str]]:
-        if v is not None and len(v) > 5:
-            raise ValueError("Skills must have at most 5 items")
+        """Validate skills: max 5 items, no empty strings."""
+        if v is not None:
+            if len(v) > 5:
+                raise ValueError("Skills must have at most 5 items")
+            for item in v:
+                if item is None or not item.strip():
+                    raise ValueError("Skills cannot contain empty items")
         return v
 
     @field_validator("links")
     @classmethod
     def validate_links(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        """Validate links: max 5 items, each must be valid URL."""
         if v is not None:
+            if len(v) > 5:
+                raise ValueError("Links must have at most 5 items")
             for link in v:
-                if link and not (link.startswith("http://") or link.startswith("https://")):
-                    raise ValueError("Links must be valid URLs starting with http:// or https://")
+                if link is None or not link.strip():
+                    raise ValueError("Links cannot contain empty items")
+                link = link.strip()
+                if not (link.startswith("http://") or link.startswith("https://")):
+                    raise ValueError(f"Invalid link '{link}': must start with http:// or https://")
+        return v
+
+    @field_validator("start_date")
+    @classmethod
+    def validate_start_date(cls, v: Optional[datetime]) -> Optional[datetime]:
+        """Validate start_date: must be <= today."""
+        if v is not None:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            if v.tzinfo is None:
+                v = v.replace(tzinfo=timezone.utc)
+            if v > now:
+                raise ValueError("Start date cannot be in the future")
         return v
 
     @field_validator("end_date")
     @classmethod
-    def validate_dates(cls, v: Optional[datetime], info) -> Optional[datetime]:
-        start_date = info.data.get("start_date")
-        if start_date is not None and v is not None and v < start_date:
-            raise ValueError("End date must be after or equal to start date")
+    def validate_end_date(cls, v: Optional[datetime], info: ValidationInfo) -> Optional[datetime]:
+        """Validate end_date: must be >= start_date if provided."""
+        if v is not None:
+            start_date = info.data.get("start_date")
+            if start_date is not None:
+                from datetime import timezone
+                if v.tzinfo is None:
+                    v = v.replace(tzinfo=timezone.utc)
+                if start_date.tzinfo is None:
+                    start_date = start_date.replace(tzinfo=timezone.utc)
+                if v < start_date:
+                    raise ValueError("End date must be on or after start date")
         return v
 
 
