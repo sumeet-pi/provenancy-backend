@@ -131,7 +131,8 @@ def update_my_profile(
     return StudentProfileUpdateResponse(
         message="Profile updated successfully",
         profile=profile_response,
-        profile_complete=profile.institution is not None
+        profile_complete=profile.institution is not None,
+        ledger_id=current_user.ledger_id
     )
 
 

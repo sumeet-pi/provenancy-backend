@@ -145,7 +145,8 @@ def update_my_profile(
     return SupervisorProfileUpdateResponse(
         message="Profile updated successfully",
         profile=profile_response,
-        profile_complete=profile.organization is not None
+        profile_complete=profile.organization is not None,
+        ledger_id=current_user.ledger_id
     )
 
 
