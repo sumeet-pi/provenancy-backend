@@ -1036,6 +1036,60 @@ Get a supervisor's public-facing profile by their **profile UUID** (`SupervisorP
 
 ---
 
+## Routes — Skills (`/skills`)
+
+All routes in this section are prefixed with `/skills`.
+
+---
+
+### `GET /skills/search`
+
+Search the global skill master table for autocomplete suggestions. This is an open endpoint (no authentication required) and returns up to 10 matching skills, sorted by exact match, prefix match, then substring match.
+
+**Authentication:** None required
+
+**Query Parameters:**
+
+| Parameter | Type     | Required    | Description                                      |
+| --------- | -------- | ----------- | ------------------------------------------------ |
+| `q`       | `string` | ✅ Required | Search string (minimum 1 character required)     |
+
+**Request:** No body required.
+
+```
+GET /skills/search?q=react
+```
+
+**Response `200 OK`:**
+
+```json
+[
+  {
+    "id": "1a2b3c4d-...",
+    "name": "React"
+  },
+  {
+    "id": "5e6f7g8h-...",
+    "name": "React Native"
+  }
+]
+```
+
+#### Response Fields (Array of objects)
+
+| Field  | Type     | Description                             |
+| ------ | -------- | --------------------------------------- |
+| `id`   | `string` | UUID of the master skill                |
+| `name` | `string` | The skill name (e.g. "React", "Python") |
+
+#### Possible Errors
+
+| Status | `detail` value                                    | When it occurs                    | Frontend action                  |
+| ------ | ------------------------------------------------- | --------------------------------- | -------------------------------- |
+| `422`  | `"Validation error"`                              | `q` parameter is missing or empty | Don't send empty search requests |
+
+---
+
 ## Data Schemas Reference
 
 These TypeScript-style type definitions mirror the Pydantic schemas exactly.

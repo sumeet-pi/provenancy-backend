@@ -1,26 +1,29 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import case
 
 from app.database import get_db
 from app.models import SkillMaster
 
-router = APIRouter(prefix="/skills", tags=["skills"])
+router = APIRouter(prefix="/skills", tags=["Skills"])
 
 
 @router.get("/search")
-def search_skills(q: str, db: Session = Depends(get_db)):
-    """
-    Search skill_master table for autocomplete.
-    Returns top 10 matching skills for the given query.
-    Case-insensitive partial match.
-    """
-    if not q or len(q) < 1:
-        return []
-
+def search_skills(
+    q: str = Query(..., min_length=1),
+    db: Session = Depends(get_db)
+):
     results = db.query(SkillMaster)\
-        .filter(SkillMaster.name.ilike(f"{q}%"))\
-        .order_by(SkillMaster.name)\
+        .filter(SkillMaster.name.ilike(f"%{q}%"))\
+        .order_by(
+            case(
+                (SkillMaster.name.ilike(q), 0),        # exact match first
+                (SkillMaster.name.ilike(f"{q}%"), 1),  # starts with second
+                else_=2                                  # contains last
+            ),
+            SkillMaster.name
+        )\
         .limit(10)\
         .all()
 
-    return [{"id": str(s.id), "name": s.name, "category": s.category} for s in results]
+    return [{"id": str(s.id), "name": s.name} for s in results]
