@@ -318,50 +318,45 @@ class HealthResponse(BaseModel):
 
 # ============== Skill Schemas ==============
 
-class SkillCreate(BaseModel):
+class SkillCreateRequest(BaseModel):
     """Schema for creating a declared skill."""
     name: str
-    category: Optional[str] = None
 
     @field_validator("name")
     @classmethod
     def normalize_name(cls, v: str) -> str:
+        """Normalize skill name: trim whitespace, convert to lowercase."""
         v = v.strip().lower()
         if not v:
             raise ValueError("Skill name cannot be empty")
-        if len(v) < 2 or len(v) > 50:
-            raise ValueError("Skill name must be between 2 and 50 characters")
+        if len(v) < 2 or len(v) > 100:
+            raise ValueError("Skill name must be between 2 and 100 characters")
         return v
 
 
 class SkillResponse(BaseModel):
-    """Schema for skill response."""
+    """Schema for a single skill response."""
     id: UUID
     name: str
-    category: Optional[str] = None
-    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
 
-class DeclaredSkillResponse(BaseModel):
-    """Schema for declared skill response."""
-    id: UUID
-    skill: SkillResponse
-
-    model_config = ConfigDict(from_attributes=True)
+class VerifiedSkillItem(BaseModel):
+    """Schema for a verified skill item (with count)."""
+    name: str
+    count: int
 
 
 class SkillListResponse(BaseModel):
-    """Schema for skill list response."""
+    """Schema for skills list response with declared and verified skills."""
     declared: List[SkillResponse] = []
-    verified: List[SkillResponse] = []
+    verified: List[VerifiedSkillItem] = []
 
 
-class PublicSkillResponse(BaseModel):
-    """Schema for public skill response."""
-    declared: List[SkillResponse] = []
-    verified: List[SkillResponse] = []
+class SkillDeleteResponse(BaseModel):
+    """Schema for skill deletion response."""
+    message: str
 
 
 # ============== Engagement Schemas ==============
