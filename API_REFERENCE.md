@@ -38,19 +38,32 @@
 
 ---
 
-## Engagements `/engagements`
+## Student Engagements `/engagements`
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/engagements` | Student creates engagement |
-| GET | `/engagements` | Student's all engagements `?status=all/verified/pending` |
-| GET | `/engagements/:id` | Single engagement detail (student + supervisor) |
-| PUT | `/engagements/:id` | Edit engagement (pending/draft only) |
+| GET | `/engagements?status=` | Student's engagements — filter by status |
+| GET | `/engagements/:id` | Single engagement detail (student + supervisor shared) |
+| PUT | `/engagements/:id` | Edit engagement (draft/pending/edit_requested only) |
 | DELETE | `/engagements/:id` | Delete engagement (unverified only) |
-| POST | `/engagements/:id/approve` | Supervisor approves + signs |
-| POST | `/engagements/:id/reject` | Supervisor rejects with reason |
-| POST | `/engagements/:id/request-edit` | Supervisor requests changes |
-| GET | `/engagements/supervisor/requests` | Supervisor's verification queue `?status=pending` |
+
+**Student status filters:** `all · draft · pending · verified · rejected · edit_requested`
+
+---
+
+## Supervisor Engagements `/supervisor/engagements`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/supervisor/engagements/requests?status=` | Supervisor's verification queue — filter by status |
+| POST | `/engagements/:id/approve` | Approve + sign engagement |
+| POST | `/engagements/:id/reject` | Reject with reason |
+| POST | `/engagements/:id/request-edit` | Request changes from student |
+
+**Supervisor status filters:** `all · pending · verified · rejected · edit_requested`
+
+> `GET /engagements/:id` is shared — both student and supervisor can view a single engagement detail. Response includes supervisor action buttons based on role from JWT.
 
 **Status flow:**
 ```
@@ -67,10 +80,13 @@ draft → pending → verified
 |--------|----------|-------------|
 | GET | `/skills` | Own skills — verified + declared |
 | POST | `/skills` | Add declared skill `{ name }` |
-| DELETE | `/skills/:id` | Remove declared skill only |
-| GET | `/skills/public/:user_id` | Public skills for student profile |
+| DELETE | `/skills/:id` | Remove declared skill only (endorsement_count = 0) |
 
-> Skills shift from **declared → verified** automatically when a supervisor approves an engagement that tags them.
+> Skills are **per student** — each skill row is owned by a `student_profile_id`.  
+> A skill is **declared** when `endorsement_count = 0` and **verified** when `endorsement_count >= 1`.  
+> `endorsement_count` increments automatically when a supervisor approves an engagement that tags that skill. Cannot be manually set.  
+> Verified skills are immutable — they cannot be deleted.  
+> Public skills are returned as part of `GET /student/:id/public` — no separate public skills endpoint needed.
 
 ---
 
@@ -87,14 +103,14 @@ draft → pending → verified
 
 | Table | Key Fields |
 |-------|------------|
-| `users` | id, name, email, hashed_password, role |
-| `student_profiles` | user_id (FK), title, bio, linkedin_url, ledger_id |
-| `supervisor_profiles` | user_id (FK), designation, org, bio, admin_id, domains |
-| `engagements` | id, student_id, supervisor_id, org, role, status, ref_id |
-| `skills` | id, user_id, name, type (declared/verified), verification_count |
+| `users` | id, email, hashed_password, role, ledger_id |
+| `student_profiles` | user_id (FK), full_name, title, bio, linkedin_url, institution |
+| `supervisor_profiles` | user_id (FK), full_name, designation, org, bio, email_domain, trust_tier |
+| `engagements` | id, student_profile_id (FK), supervisor_profile_id (FK), org, role, status, block_hash, verified_at |
+| `skills` | id, student_profile_id (FK), name, endorsement_count |
 | `engagement_skills` | engagement_id (FK), skill_id (FK) |
 
 ---
 
-**Total: 26 endpoints**  
-Build order: Auth → Profiles → Engagements → Skills → Dashboard
+**Total: 25 endpoints**  
+Build order: Skills → Engagements → Dashboard
