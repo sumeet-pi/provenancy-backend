@@ -5,7 +5,7 @@ Each class represents a table in the database.
 import uuid
 import enum
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, Boolean, Enum, ForeignKey, Text, JSON
+from sqlalchemy import Column, String, DateTime, Boolean, Enum, ForeignKey, Text, JSON, Integer
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
@@ -138,7 +138,7 @@ class StudentProfile(Base):
 
     # Relationships
     user = relationship("User", back_populates="student_profile")
-    declared_skills = relationship("DeclaredSkill", back_populates="student_profile", cascade="all, delete-orphan")
+    skills = relationship("Skill", back_populates="student_profile", cascade="all, delete-orphan")
     engagements = relationship("Engagement", back_populates="student_profile", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
@@ -201,53 +201,17 @@ class SupervisorProfile(Base):
 
 class Skill(Base):
     """
-    Skill model representing a skill definition.
+    Skill model representing a per-student skill definition.
 
     Attributes:
         id: Primary key (UUID)
-        name: Skill name (unique)
-        category: Skill category (optional)
-    """
-
-    __tablename__ = "skills"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column(String(100), nullable=False, unique=True, index=True)
-    category = Column(String(100), nullable=True)
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False
-    )
-
-    # Relationships
-    engagement_skills = relationship(
-        "EngagementSkill",
-        back_populates="skill",
-        cascade="all, delete-orphan"
-    )
-    declared_skills = relationship(
-        "DeclaredSkill",
-        back_populates="skill",
-        cascade="all, delete-orphan"
-    )
-
-    def __repr__(self) -> str:
-        return f"<Skill(id={self.id}, name='{self.name}')>"
-
-
-class DeclaredSkill(Base):
-    """
-    DeclaredSkill model representing user-added skills.
-
-    Attributes:
-        id: Primary key (UUID)
-        student_profile_id: Foreign key to student_profiles
-        skill_id: Foreign key to skills
+        student_profile_id: Owning student (FK)
+        name: Skill name
+        endorsement_count: Count of verified engagements using this skill
         created_at: Timestamp when skill was declared
     """
 
-    __tablename__ = "declared_skills"
+    __tablename__ = "skills"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     student_profile_id = Column(
@@ -256,12 +220,8 @@ class DeclaredSkill(Base):
         nullable=False,
         index=True
     )
-    skill_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("skills.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True
-    )
+    name = Column(String(100), nullable=False)
+    endorsement_count = Column(Integer, nullable=False, default=0)
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -269,15 +229,19 @@ class DeclaredSkill(Base):
     )
 
     # Relationships
-    student_profile = relationship("StudentProfile", back_populates="declared_skills")
-    skill = relationship("Skill", back_populates="declared_skills")
+    student_profile = relationship("StudentProfile", back_populates="skills")
+    engagement_skills = relationship(
+        "EngagementSkill",
+        back_populates="skill",
+        cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
-        Index("ix_declared_skills_unique", "student_profile_id", "skill_id", unique=True),
+        Index("ix_skills_student_name", "student_profile_id", "name", unique=True),
     )
 
     def __repr__(self) -> str:
-        return f"<DeclaredSkill(id={self.id}, student_profile_id={self.student_profile_id}, skill_id={self.skill_id})>"
+        return f"<Skill(id={self.id}, student_profile_id={self.student_profile_id}, name='{self.name}')>"
 
 
 class Engagement(Base):
@@ -394,3 +358,23 @@ class EngagementSkill(Base):
 
     def __repr__(self) -> str:
         return f"<EngagementSkill(id={self.id}, engagement_id={self.engagement_id}, skill_id={self.skill_id})>"
+
+
+class SkillMaster(Base):
+    """
+    Global master list of skills for autocomplete/search.
+    Seeded from external dataset. Read-only at runtime.
+    """
+    __tablename__ = "skill_master"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(200), nullable=False, unique=True, index=True)
+    category = Column(String(100), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<SkillMaster(id={self.id}, name='{self.name}')>"

@@ -6,7 +6,8 @@
       "Read(//d D:/Project 6th sem Provenancy/**)",
       "Bash(pip install:*)",
       "Bash(curl:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(dir \"D:\\\\provenancy\\\\backend\")"
     ]
   }
 }

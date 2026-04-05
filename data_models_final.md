@@ -24,7 +24,7 @@
 ```text
 users                              ← Auth: email, password, role, ledger_id
 ├── student_profiles               ← Student identity & bio (1-to-1)
-│   ├── skills                     ← Skill definitions (1-to-many)
+│   └── skills                     ← Per-student owned skills (1-to-many)
 │   └── engagements                ← Work records (1-to-many)
 │       └── engagement_skills      ← Skill usage bridge (many-to-many)
 │
@@ -155,7 +155,7 @@ draft → pending → verified
 
 ### `skills`
 
-> Skill definitions owned by a student.
+> Per-student skill registry. Each skill is owned by a specific student.
 
 | Column | Type | Constraints | Description |
 | --- | --- | --- | --- |
@@ -165,8 +165,13 @@ draft → pending → verified
 | `endorsement_count` | `INTEGER` | NOT NULL · default `0` | Incremented when a linked engagement transitions to `verified` |
 | `created_at` | `TIMESTAMPTZ` | NOT NULL · default `now()` | |
 
-> [!NOTE]
-> `endorsement_count` is computed — not manually set. It increments via app logic each time an engagement referencing this skill via `engagement_skills` moves to `status = 'verified'`.
+**Unique constraint:** `(student_profile_id, name)` — same student cannot declare the same skill twice.
+
+**Verified vs. Declared:**
+- `endorsement_count = 0` → skill is **declared** (added to profile but not yet verified by any engagement)
+- `endorsement_count >= 1` → skill is **verified** (at least one engagement using this skill is verified)
+
+`endorsement_count` increments via app logic each time an engagement referencing this skill via `engagement_skills` moves to `status = 'verified'`.
 
 ---
 
@@ -181,7 +186,9 @@ draft → pending → verified
 | `skill_id` | `UUID` | FK → `skills.id` · NOT NULL · indexed | The skill being referenced |
 
 > [!NOTE]
-> Verified skill count = `COUNT(engagement_skills JOIN engagements WHERE status = 'verified')`. This powers the trust score on the public student profile.
+> **Verified skill count** = `COUNT(skills WHERE endorsement_count >= 1)` — a skill is verified when at least one engagement referencing it is verified.
+>
+> **Declared skill count** = `COUNT(skills WHERE endorsement_count = 0)` — a skill is declared but not yet verified.
 
 ---
 
@@ -190,15 +197,14 @@ draft → pending → verified
 ```text
 users (1) ──────────────── (1) student_profiles
                                     │
-                          ┌─────────┴──────────┐
-                         (N)                  (N)
-                        skills           engagements
-                          ▲                   │
-                          │                  (N)
-                          │          engagement_skills
-                          │                   │
-                          └───────────────────┘
-                    (skills referenced from verified engagements)
+                     ┌──────────────┴──────────────┐
+                    (N)                        (N)
+               skills                    engagements
+                    │                         (N)
+                    │                 engagement_skills
+                    └──────────┬──────────────────┘
+                              (N)
+                        [via engagement_skills]
 
 users (1) ──────────────── (1) supervisor_profiles
                                     │
