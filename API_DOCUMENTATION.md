@@ -789,7 +789,21 @@ Get a student's public-facing profile by their **profile UUID** (`StudentProfile
       "verification_type": "institutional",
       "verified_at": "2025-09-02T14:22:00Z"
     }
-  ]
+  ],
+  "skills": {
+    "declared": [
+      {
+        "id": "e4c1f211-54b9-4d43-a65c-6b3281cda885",
+        "name": "python"
+      }
+    ],
+    "verified": [
+      {
+        "name": "javascript",
+        "count": 2
+      }
+    ]
+  }
 }
 ```
 
@@ -806,6 +820,7 @@ Get a student's public-facing profile by their **profile UUID** (`StudentProfile
 | `institution`          | `string` \| `null` | Affiliated institution (optional)                        |
 | `created_at`           | `string` (ISO 8601 UTC) | Profile creation date                               |
 | `verified_engagements` | `array`           | List of verified engagements only (empty array if none)   |
+| `skills`               | `object` \| `null`| Grouped skills containing `declared` and `verified` lists |
 
 #### `verified_engagements[]` Item Fields
 
@@ -818,6 +833,21 @@ Get a student's public-facing profile by their **profile UUID** (`StudentProfile
 | `end_date`          | `string` (ISO 8601 UTC) \| `null`             | Engagement end date (null if ongoing)        |
 | `verification_type` | `"institutional"` \| `"independent"` \| `null` | Supervisor's trust tier at time of verification |
 | `verified_at`       | `string` (ISO 8601 UTC) \| `null`             | When the engagement was verified             |
+
+#### `skills` Object Fields
+
+| Field        | Type    | Description                                            |
+| ------------ | ------- | ------------------------------------------------------ |
+| `declared`   | `array` | List of self-declared skills (see fields below)        |
+| `verified`   | `array` | List of verified skills with counts (see fields below) |
+
+**`skills.declared[]` Item Fields:**
+- `id` (`string`, UUID): Unique skill ID
+- `name` (`string`): Skill name
+
+**`skills.verified[]` Item Fields:**
+- `name` (`string`): Verified skill name
+- `count` (`integer`): Number of verified engagements backing this skill
 
 #### Possible Errors
 
