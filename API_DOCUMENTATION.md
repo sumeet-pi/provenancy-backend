@@ -29,12 +29,17 @@
    - [GET /supervisor/me](#get-supervisorme)
    - [PUT /supervisor/me](#put-supervisorme)
    - [GET /supervisor/{supervisor_id}/public](#get-supervisorsupervisor_idpublic)
-9. [Data Schemas Reference](#data-schemas-reference)
-10. [Auto-Generated Fields](#auto-generated-fields)
-11. [Trust Tier Logic](#trust-tier-logic)
-12. [Frontend Integration Notes](#frontend-integration-notes)
-13. [CORS Configuration](#cors-configuration)
-14. [Environment Variables](#environment-variables)
+9. [Routes — Skills (`/skills`)](#routes--skills-skills)
+   - [GET /skills/search](#get-skillssearch)
+   - [GET /skills](#get-skills)
+   - [POST /skills](#post-skills)
+   - [DELETE /skills/{skill_id}](#delete-skillsskill_id)
+10. [Data Schemas Reference](#data-schemas-reference)
+11. [Auto-Generated Fields](#auto-generated-fields)
+12. [Trust Tier Logic](#trust-tier-logic)
+13. [Frontend Integration Notes](#frontend-integration-notes)
+14. [CORS Configuration](#cors-configuration)
+15. [Environment Variables](#environment-variables)
 
 ---
 
@@ -1056,7 +1061,7 @@ Search the global skill master table for autocomplete suggestions. This is an op
 
 **Request:** No body required.
 
-```
+```http
 GET /skills/search?q=react
 ```
 
@@ -1087,6 +1092,140 @@ GET /skills/search?q=react
 | Status | `detail` value                                    | When it occurs                    | Frontend action                  |
 | ------ | ------------------------------------------------- | --------------------------------- | -------------------------------- |
 | `422`  | `"Validation error"`                              | `q` parameter is missing or empty | Don't send empty search requests |
+
+---
+
+### `GET /skills`
+
+Get all declared and verified skills for the currently authenticated user.
+
+**Authentication:** Required — Bearer Token
+
+**Request:** No body required.
+
+```http
+GET /skills
+Authorization: Bearer <access_token>
+```
+
+**Response `200 OK`:**
+
+```json
+{
+  "declared": [
+    {
+      "id": "123e4567-e89b-12d3-a456-426614174000",
+      "name": "react"
+    }
+  ],
+  "verified": [
+    {
+      "name": "python",
+      "count": 2
+    }
+  ]
+}
+```
+
+#### Response Fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `declared` | `array` | List of skills declared by the user but not yet verified |
+| `verified` | `array` | List of verified skills and their occurrence counts |
+
+#### Possible Errors
+
+| Status | `detail` value | When it occurs | Frontend action |
+| --- | --- | --- | --- |
+| `401` | `"Invalid authentication credentials"` | Missing or invalid token | Redirect to login |
+
+---
+
+### `POST /skills`
+
+Add one or multiple declared skills to the current user's profile. Up to 10 skills can be added at once. Duplicates (even different cases) are automatically skipped.
+
+**Authentication:** Required — Bearer Token
+
+**Request Body:** `application/json`
+
+```json
+{
+  "skills": ["Python", "React", "Docker"]
+}
+```
+
+#### Request Fields
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `skills` | `array` of `string` | ✅ Yes | 1 to 10 skill names. Length 1-100 characters per skill. |
+
+**Response `201 Created`:**
+
+```json
+{
+  "created": [
+    {
+      "id": "123e4567-e89b-12d3-a456-426614174000",
+      "name": "python"
+    },
+    {
+      "id": "123e4567-e89b-12d3-a456-426614174001",
+      "name": "docker"
+    }
+  ],
+  "skipped": ["react"]
+}
+```
+
+#### Response Fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `created` | `array` | Details of successfully added skills |
+| `skipped` | `array` of `string` | Skills that were not added because they already exist |
+
+#### Possible Errors
+
+| Status | `detail` value | When it occurs | Frontend action |
+| --- | --- | --- | --- |
+| `400` | `"Student profile not found"` | Missing profile | Toast error |
+| `401` | `"Invalid authentication credentials"` | Invalid token | Redirect to login |
+| `422` | `"Validation error"` + `errors[]` | Array size > 10, empty skill string, etc. | Handle validation error |
+
+---
+
+### `DELETE /skills/{skill_id}`
+
+Remove a declared skill from the user's profile. Note: Verified skills cannot be deleted.
+
+**Authentication:** Required — Bearer Token
+
+**Path Parameter:**
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `skill_id` | `string` (UUID) | The ID of the skill to delete |
+
+**Request:** No body required.
+
+**Response `200 OK`:**
+
+```json
+{
+  "message": "Skill removed"
+}
+```
+
+#### Possible Errors
+
+| Status | `detail` value | When it occurs | Frontend action |
+| --- | --- | --- | --- |
+| `401` | `"Invalid authentication credentials"` | Invalid token | Redirect to login |
+| `403` | `"Verified skills cannot be deleted"` | Attempting to delete a verified skill | Show error stating it can't be deleted |
+| `404` | `"Skill not found"` | Skill doesn't exist or doesn't belong to the user | Treat as local state update anyway |
 
 ---
 
