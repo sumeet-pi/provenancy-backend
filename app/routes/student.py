@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
-from app.models import User, StudentProfile, UserRole, Engagement, EngagementStatus
+from app.models import User, StudentProfile, UserRole, Engagement, EngagementStatus, Skill
 from app.schemas import (
     StudentProfileUpdateRequest,
     StudentProfileUpdateResponse,
@@ -15,6 +15,9 @@ from app.schemas import (
     UserResponse,
     UserRole as UserRoleSchema,
     VerifiedEngagementPublic,
+    SkillListResponse,
+    SkillResponse,
+    VerifiedSkillItem,
 )
 from app.auth import get_current_user, require_student
 
@@ -189,6 +192,37 @@ def get_public_profile(
     # Get user for ledger_id
     user = db.query(User).filter(User.id == profile.user_id).first()
 
+    # Get declared skills (is_verified = False)
+    declared_skills = db.query(Skill).filter(
+        Skill.student_profile_id == profile.id,
+        Skill.is_verified == False
+    ).order_by(Skill.name).all()
+
+    declared_response = [
+        SkillResponse(id=skill.id, name=skill.name)
+        for skill in declared_skills
+    ]
+
+    # Get verified skills (is_verified = True)
+    verified_skills = db.query(Skill).filter(
+        Skill.student_profile_id == profile.id,
+        Skill.is_verified == True
+    ).all()
+
+    verified_counts: dict[str, int] = {}
+    for skill in verified_skills:
+        verified_counts[skill.name] = verified_counts.get(skill.name, 0) + 1
+
+    verified_response = [
+        VerifiedSkillItem(name=name, count=count)
+        for name, count in sorted(verified_counts.items())
+    ]
+
+    skill_list_response = SkillListResponse(
+        declared=declared_response,
+        verified=verified_response
+    )
+
     return StudentPublicResponse(
         id=profile.id,
         ledger_id=user.ledger_id if user else None,
@@ -198,5 +232,6 @@ def get_public_profile(
         linkedin_url=profile.linkedin_url,
         institution=profile.institution,
         created_at=profile.created_at,
-        verified_engagements=verified_engagement_list
+        verified_engagements=verified_engagement_list,
+        skills=skill_list_response
     )

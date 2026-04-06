@@ -215,6 +215,7 @@ class StudentPublicResponse(BaseModel):
     institution: Optional[str] = None
     created_at: datetime
     verified_engagements: List["VerifiedEngagementPublic"] = []
+    skills: Optional["SkillListResponse"] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -300,11 +301,6 @@ class SupervisorPublicResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-# Update forward references
-StudentProfileUpdateResponse.model_rebuild()
-StudentPublicResponse.model_rebuild()
-SupervisorProfileUpdateResponse.model_rebuild()
-SupervisorPublicResponse.model_rebuild()
 
 
 # ============== Health Check Schema ==============
@@ -711,5 +707,10 @@ class EngagementListResponse(BaseModel):
     end_date: Optional[datetime] = None
     status: EngagementStatus
     verified_at: Optional[datetime] = None
-
     model_config = ConfigDict(from_attributes=True)
+
+# Update forward references
+StudentProfileUpdateResponse.model_rebuild()
+StudentPublicResponse.model_rebuild()
+SupervisorProfileUpdateResponse.model_rebuild()
+SupervisorPublicResponse.model_rebuild()
