@@ -334,12 +334,46 @@ class SkillCreateRequest(BaseModel):
         return v
 
 
+class SkillBulkCreateRequest(BaseModel):
+    """Schema for creating multiple declared skills at once."""
+    skills: List[str]
+
+    @field_validator("skills")
+    @classmethod
+    def validate_skills(cls, v: List[str]) -> List[str]:
+        """Validate each skill name and remove duplicates."""
+        if not v:
+            raise ValueError("Skills list cannot be empty")
+        if len(v) > 10:
+            raise ValueError("Cannot add more than 10 skills at once")
+
+        normalized = []
+        seen = set()
+        for skill in v:
+            skill = skill.strip().lower()
+            if not skill:
+                raise ValueError("Skill name cannot be empty")
+            if len(skill) < 1 or len(skill) > 100:
+                raise ValueError(f"Skill name '{skill}' must be between 1 and 100 characters")
+            if skill not in seen:
+                normalized.append(skill)
+                seen.add(skill)
+
+        return normalized
+
+
 class SkillResponse(BaseModel):
     """Schema for a single skill response."""
     id: UUID
     name: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SkillBulkResponse(BaseModel):
+    """Schema for bulk skill creation response."""
+    created: List[SkillResponse] = []
+    skipped: List[str] = []
 
 
 class VerifiedSkillItem(BaseModel):

@@ -205,7 +205,8 @@ class Skill(Base):
 
     Attributes:
         id: Primary key (UUID)
-        user_id: Owning user (FK to users)
+        student_profile_id: Owning student profile (FK to student_profiles)
+        user_id: Owning user (FK to users) - kept for convenience
         name: Normalized skill name (lowercase, trimmed)
         is_verified: Whether skill is verified (derived from approved engagements)
         created_at: Timestamp when skill was declared
@@ -214,6 +215,12 @@ class Skill(Base):
     __tablename__ = "skills"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    student_profile_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("student_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
     user_id = Column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
@@ -229,15 +236,21 @@ class Skill(Base):
     )
 
     # Relationships
+    student_profile = relationship("StudentProfile", back_populates="skills")
     user = relationship("User", backref="skills")
+    engagement_skills = relationship(
+        "EngagementSkill",
+        back_populates="skill",
+        cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
-        UniqueConstraint('user_id', 'name', name='uq_skill_user_name'),
-        Index("ix_skills_user_name", "user_id", "name"),
+        UniqueConstraint('student_profile_id', 'name', name='uq_skill_student_name'),
+        Index("ix_skills_student_name", "student_profile_id", "name"),
     )
 
     def __repr__(self) -> str:
-        return f"<Skill(id={self.id}, user_id={self.user_id}, name='{self.name}', verified={self.is_verified})>"
+        return f"<Skill(id={self.id}, student_profile_id={self.student_profile_id}, name='{self.name}', verified={self.is_verified})>"
 
 
 class Engagement(Base):

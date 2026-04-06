@@ -52,3 +52,7 @@ logs/
 
 # Node (if frontend in same repo)
 node_modules/
+
+# Local data files
+skills.csv
+skills.xlsx

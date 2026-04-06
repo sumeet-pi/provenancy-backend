@@ -8,10 +8,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy import case, func
 
 from app.database import get_db
-from app.models import User, Skill, SkillMaster
+from app.models import User, Skill, SkillMaster, StudentProfile
 from app.schemas import (
     SkillCreateRequest,
+    SkillBulkCreateRequest,
     SkillResponse,
+    SkillBulkResponse,
     VerifiedSkillItem,
     SkillListResponse,
     SkillDeleteResponse,
@@ -65,9 +67,17 @@ def get_skills(
     Returns both declared skills (user-added) and verified skills (from approved engagements).
     Verified skills are currently derived from the skills table where is_verified=True.
     """
+    # Get student's profile
+    student_profile = db.query(StudentProfile).filter(
+        StudentProfile.user_id == current_user.id
+    ).first()
+
+    if not student_profile:
+        return SkillListResponse(declared=[], verified=[])
+
     # Get declared skills (is_verified = False)
     declared_skills = db.query(Skill).filter(
-        Skill.user_id == current_user.id,
+        Skill.student_profile_id == student_profile.id,
         Skill.is_verified == False
     ).order_by(Skill.name).all()
 
@@ -78,7 +88,7 @@ def get_skills(
 
     # Get verified skills (is_verified = True)
     verified_skills = db.query(Skill).filter(
-        Skill.user_id == current_user.id,
+        Skill.student_profile_id == student_profile.id,
         Skill.is_verified == True
     ).all()
 
@@ -98,44 +108,71 @@ def get_skills(
     )
 
 
-@router.post("", response_model=SkillResponse, status_code=status.HTTP_201_CREATED)
-def create_skill(
-    skill_data: SkillCreateRequest,
+@router.post("", response_model=SkillBulkResponse, status_code=status.HTTP_201_CREATED)
+def create_skills(
+    skill_data: SkillBulkCreateRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Create a new declared skill for the current user.
+    Create multiple declared skills for the current user.
 
     Validates:
-    - Name is not empty
-    - Name is 2-100 characters
-    - Skill doesn't already exist for this user (case-insensitive)
+    - Each skill name is not empty
+    - Each skill name is 2-100 characters
+    - Maximum 10 skills can be added at once
+    - Duplicate skills within the request are deduplicated
+    - Skills that already exist for this user are skipped
+
+    Returns:
+        created: List of skills that were successfully created
+        skipped: List of skill names that already existed and were skipped
     """
-    # Check for duplicate skill (case-insensitive)
-    existing_skill = db.query(Skill).filter(
-        Skill.user_id == current_user.id,
-        Skill.name == skill_data.name
+    # Get student's profile
+    student_profile = db.query(StudentProfile).filter(
+        StudentProfile.user_id == current_user.id
     ).first()
 
-    if existing_skill:
+    if not student_profile:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Skill '{skill_data.name}' already exists"
+            detail="Student profile not found"
         )
 
-    # Create new skill
-    new_skill = Skill(
-        user_id=current_user.id,
-        name=skill_data.name,
-        is_verified=False
-    )
+    created_skills: List[SkillResponse] = []
+    skipped_skills: List[str] = []
 
-    db.add(new_skill)
+    # Get existing skill names for this student
+    existing_skills = db.query(Skill).filter(
+        Skill.student_profile_id == student_profile.id
+    ).all()
+    existing_names = {skill.name.lower() for skill in existing_skills}
+
+    # Process each skill
+    for skill_name in skill_data.skills:
+        if skill_name.lower() in existing_names:
+            skipped_skills.append(skill_name)
+            continue
+
+        # Create new skill
+        new_skill = Skill(
+            student_profile_id=student_profile.id,
+            user_id=current_user.id,
+            name=skill_name,
+            is_verified=False
+        )
+        db.add(new_skill)
+        db.flush()  # Flush to get the ID without committing
+
+        created_skills.append(SkillResponse(id=new_skill.id, name=new_skill.name))
+        existing_names.add(skill_name.lower())  # Prevent duplicates in same batch
+
     db.commit()
-    db.refresh(new_skill)
 
-    return SkillResponse(id=new_skill.id, name=new_skill.name)
+    return SkillBulkResponse(
+        created=created_skills,
+        skipped=skipped_skills
+    )
 
 
 @router.delete("/{skill_id}", response_model=SkillDeleteResponse)
@@ -152,6 +189,17 @@ def delete_skill(
     - Verified skills (is_verified=True) cannot be deleted
     - Returns 404 if skill not found
     """
+    # Get student's profile
+    student_profile = db.query(StudentProfile).filter(
+        StudentProfile.user_id == current_user.id
+    ).first()
+
+    if not student_profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Skill not found"
+        )
+
     skill = db.query(Skill).filter(Skill.id == skill_id).first()
 
     if not skill:
@@ -160,8 +208,8 @@ def delete_skill(
             detail="Skill not found"
         )
 
-    # Check ownership
-    if skill.user_id != current_user.id:
+    # Check ownership (using student_profile_id)
+    if skill.student_profile_id != student_profile.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Skill not found"
