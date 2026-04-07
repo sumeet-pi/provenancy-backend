@@ -17,6 +17,7 @@ from app.auth import router as auth_router
 from app.routes.student import router as student_router
 from app.routes.supervisor import router as supervisor_router
 from app.routes.skills import router as skills_router
+from app.routes.engagements import router as engagements_router
 
 from sqlalchemy import text
 
@@ -143,6 +144,7 @@ app.include_router(auth_router)
 app.include_router(student_router)
 app.include_router(supervisor_router)
 app.include_router(skills_router)
+app.include_router(engagements_router)
 
 
 # ============== Root Endpoint ==============
