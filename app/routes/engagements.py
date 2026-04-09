@@ -46,6 +46,25 @@ def validate_status_transition(current: EngagementStatus, new: EngagementStatus)
     return new in ALLOWED_TRANSITIONS.get(current, [])
 
 
+# ============== Role-Based Status Validation ==============
+
+STUDENT_ALLOWED_STATUSES = {"all", "draft", "pending", "verified", "rejected", "edit_requested"}
+SUPERVISOR_ALLOWED_STATUSES = {"all", "pending", "verified", "rejected", "edit_requested"}
+
+
+def get_allowed_statuses(role: UserRole) -> set[str]:
+    """Return allowed status values for the given role."""
+    if role == UserRole.STUDENT:
+        return STUDENT_ALLOWED_STATUSES
+    return SUPERVISOR_ALLOWED_STATUSES
+
+
+def build_status_error_message(role: UserRole) -> str:
+    """Build an error message listing allowed values for the role."""
+    allowed = sorted(get_allowed_statuses(role))
+    return f"Invalid status. Allowed values: {', '.join(allowed)}"
+
+
 # ============== Helper Functions ==============
 
 def get_engagement_or_404(db: Session, engagement_id: UUID, user: User) -> Engagement:
@@ -233,42 +252,50 @@ def create_engagement(
 
 @router.get("", response_model=List[EngagementListResponse])
 def list_engagements(
-    status_filter: Optional[str] = Query(None, description="Filter by status"),
-    current_user: User = Depends(require_student),
+    status: Optional[str] = Query(None, alias="status", description="Filter by status"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List all engagements for the current student."""
-    student_profile = db.query(StudentProfile).filter(
-        StudentProfile.user_id == current_user.id
-    ).first()
+    """List all engagements for the current user (role-aware)."""
+    allowed_statuses = get_allowed_statuses(current_user.role)
 
-    if not student_profile:
-        return []
+    # Build base query
+    if current_user.role == UserRole.STUDENT:
+        student_profile = db.query(StudentProfile).filter(
+            StudentProfile.user_id == current_user.id
+        ).first()
+        if not student_profile:
+            return []
+        query = db.query(Engagement).filter(
+            Engagement.student_profile_id == student_profile.id
+        )
+    else:
+        supervisor_profile = db.query(SupervisorProfile).filter(
+            SupervisorProfile.user_id == current_user.id
+        ).first()
+        if not supervisor_profile:
+            return []
+        query = db.query(Engagement).filter(
+            Engagement.supervisor_profile_id == supervisor_profile.id
+        )
 
-    query = db.query(Engagement).filter(
-        Engagement.student_profile_id == student_profile.id
-    )
-
-    # Apply status filter
-    if status_filter and status_filter.lower() == "all":
-        # "all" means no filter - return all statuses
-        pass
-    elif status_filter:
-        allowed_statuses = {"draft", "pending", "verified", "rejected", "edit_requested"}
-        status_lower = status_filter.lower()
+    # Validate and apply status filter
+    if status:
+        status_lower = status.lower()
         if status_lower not in allowed_statuses:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid status. Allowed values: all, {', '.join(sorted(allowed_statuses))}"
+                detail=build_status_error_message(current_user.role)
             )
-        try:
-            status_enum = EngagementStatus(status_lower)
-            query = query.filter(Engagement.status == status_enum)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid status. Allowed values: all, {', '.join(sorted(allowed_statuses))}"
-            )
+        if status_lower != "all":
+            try:
+                status_enum = EngagementStatus(status_lower)
+                query = query.filter(Engagement.status == status_enum)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=build_status_error_message(current_user.role)
+                )
 
     engagements = query.order_by(Engagement.created_at.desc()).all()
 
