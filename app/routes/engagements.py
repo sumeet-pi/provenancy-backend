@@ -82,8 +82,7 @@ def check_duplicate_engagement(
     end_date: Optional[datetime],
     exclude_id: Optional[UUID] = None
 ) -> bool:
-    """Check if a duplicate engagement already exists."""
-    # Normalize for comparison
+    """Check if a duplicate engagement already exists (same org + role + non-rejected)."""
     org_normalized = organization_name.lower().strip()
     role_normalized = role.lower().strip()
 
@@ -97,17 +96,7 @@ def check_duplicate_engagement(
     if exclude_id:
         query = query.filter(Engagement.id != exclude_id)
 
-    # Check for overlapping dates
-    existing = query.all()
-    for eng in existing:
-        # Check date overlap
-        if eng.start_date <= start_date and (eng.end_date is None or eng.end_date >= start_date):
-            return True
-        if eng.start_date <= (end_date or datetime.max) and (eng.end_date is None or eng.end_date <= (end_date or datetime.max)):
-            if end_date and eng.end_date and eng.end_date >= end_date:
-                return True
-
-    return False
+    return query.first() is not None
 
 
 def resolve_skills(db: Session, skill_names: List[str], student_profile_id: UUID, user_id: UUID) -> List[Skill]:
@@ -260,20 +249,25 @@ def list_engagements(
         Engagement.student_profile_id == student_profile.id
     )
 
-    if status_filter:
+    # Apply status filter
+    if status_filter and status_filter.lower() == "all":
+        # "all" means no filter - return all statuses
+        pass
+    elif status_filter:
         allowed_statuses = {"draft", "pending", "verified", "rejected", "edit_requested"}
-        if status_filter.lower() not in allowed_statuses:
+        status_lower = status_filter.lower()
+        if status_lower not in allowed_statuses:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid status. Allowed values: {', '.join(sorted(allowed_statuses))}"
+                detail=f"Invalid status. Allowed values: all, {', '.join(sorted(allowed_statuses))}"
             )
         try:
-            status_enum = EngagementStatus(status_filter.lower())
+            status_enum = EngagementStatus(status_lower)
             query = query.filter(Engagement.status == status_enum)
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid status. Allowed values: {', '.join(sorted(allowed_statuses))}"
+                detail=f"Invalid status. Allowed values: all, {', '.join(sorted(allowed_statuses))}"
             )
 
     engagements = query.order_by(Engagement.created_at.desc()).all()
@@ -494,10 +488,10 @@ def submit_engagement(
         )
 
     # Verify required fields before submission
-    if not engagement.organization_name or not engagement.role or not engagement.start_date:
+    if not engagement.organization_name or not engagement.role or not engagement.start_date or not engagement.end_date:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Organization name, role, and start date are required to submit"
+            detail="Organization name, role, start date, and end date are required to submit"
         )
 
     # Validate supervisor_ref is present
@@ -669,6 +663,7 @@ def approve_engagement(
     engagement.verification_type = verification_type
     engagement.verified_at = verified_at
     engagement.block_hash = block_hash
+    engagement.rejection_reason = None  # Clear any previous rejection reason
 
     # Endorse all linked skills (mark as verified)
     for es in engagement.engagement_skills:

@@ -567,13 +567,13 @@ class EngagementCreate(BaseModel, EngagementBaseValidator):
     - highlights: optional list, max 3 items, each max 200 chars
     - links: optional list, max 5 items, valid URLs
     - start_date: required, must be <= today
-    - end_date: optional, must be >= start_date
+    - end_date: required, must be >= start_date
     - supervisor_ref: optional, valid email or ledger_id
     """
     organization_name: str
     role: str
     start_date: datetime
-    end_date: Optional[datetime] = None
+    end_date: datetime
     summary: Optional[str] = None
     highlights: Optional[List[str]] = None
     skills: Optional[List[str]] = None
@@ -590,6 +590,21 @@ class EngagementCreate(BaseModel, EngagementBaseValidator):
             v = v.replace(tzinfo=timezone.utc)
         if v > now:
             raise ValueError("Start date cannot be in the future")
+        return v
+
+    @field_validator("end_date")
+    @classmethod
+    def validate_end_date(cls, v: datetime, info: ValidationInfo) -> datetime:
+        """Validate end_date: must be >= start_date."""
+        start_date = info.data.get("start_date")
+        if start_date is not None:
+            from datetime import timezone
+            if v.tzinfo is None:
+                v = v.replace(tzinfo=timezone.utc)
+            if start_date.tzinfo is None:
+                start_date = start_date.replace(tzinfo=timezone.utc)
+            if v < start_date:
+                raise ValueError("End date must be on or after start date")
         return v
 
     @field_validator("supervisor_ref")
