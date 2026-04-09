@@ -390,6 +390,40 @@ class SkillDeleteResponse(BaseModel):
     message: str
 
 
+# ============== Supervisor Engagement Review Schemas ==============
+
+class RejectEngagementRequest(BaseModel):
+    """Schema for rejecting an engagement."""
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, v: str) -> str:
+        """Validate rejection reason: must be non-empty, max 500 chars."""
+        v = v.strip()
+        if not v:
+            raise ValueError("Rejection reason cannot be empty")
+        if len(v) > 500:
+            raise ValueError("Rejection reason must not exceed 500 characters")
+        return v
+
+
+class RequestEditEngagementRequest(BaseModel):
+    """Schema for requesting edits on an engagement."""
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, v: str) -> str:
+        """Validate edit request reason: must be non-empty, max 500 chars."""
+        v = v.strip()
+        if not v:
+            raise ValueError("Edit request reason cannot be empty")
+        if len(v) > 500:
+            raise ValueError("Edit request reason must not exceed 500 characters")
+        return v
+
+
 # ============== Engagement Schemas ==============
 
 # Generic/meaningless org names to reject at business logic level

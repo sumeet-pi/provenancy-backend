@@ -21,8 +21,11 @@ from app.schemas import (
     EngagementListResponse,
     EngagementStatus as EngagementStatusSchema,
     SkillResponse,
+    RejectEngagementRequest,
+    RequestEditEngagementRequest,
+    VerificationType,
 )
-from app.auth import get_current_user, require_student, require_supervisor
+from app.auth import get_current_user, require_student, require_supervisor, require_complete_profile
 
 router = APIRouter(prefix="/engagements", tags=["Engagements"])
 
@@ -172,7 +175,7 @@ def map_engagement_to_response(engagement: Engagement) -> EngagementResponse:
 @router.post("", response_model=EngagementResponse, status_code=status.HTTP_201_CREATED)
 def create_engagement(
     engagement_data: EngagementCreate,
-    current_user: User = Depends(require_student),
+    current_user: User = Depends(require_complete_profile),
     db: Session = Depends(get_db)
 ):
     """Create a new engagement (status = draft)."""
@@ -258,11 +261,20 @@ def list_engagements(
     )
 
     if status_filter:
+        allowed_statuses = {"draft", "pending", "verified", "rejected", "edit_requested"}
+        if status_filter.lower() not in allowed_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status. Allowed values: {', '.join(sorted(allowed_statuses))}"
+            )
         try:
-            status_enum = EngagementStatus(status_filter)
+            status_enum = EngagementStatus(status_filter.lower())
             query = query.filter(Engagement.status == status_enum)
         except ValueError:
-            pass  # Ignore invalid status filter
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status. Allowed values: {', '.join(sorted(allowed_statuses))}"
+            )
 
     engagements = query.order_by(Engagement.created_at.desc()).all()
 
@@ -286,8 +298,40 @@ def get_engagement(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get a single engagement by ID."""
-    engagement = get_engagement_or_404(db, engagement_id, current_user)
+    """Get a single engagement by ID.
+
+    Accessible by:
+    - Owner student
+    - Assigned supervisor
+    """
+    engagement = db.query(Engagement).filter(Engagement.id == engagement_id).first()
+    if not engagement:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Engagement not found"
+        )
+
+    # For students, verify ownership
+    if current_user.role == UserRole.STUDENT:
+        student_profile = db.query(StudentProfile).filter(
+            StudentProfile.user_id == current_user.id
+        ).first()
+        if not student_profile or engagement.student_profile_id != student_profile.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have access to this engagement"
+            )
+    # For supervisors, verify they are assigned to this engagement
+    elif current_user.role == UserRole.SUPERVISOR:
+        supervisor_profile = db.query(SupervisorProfile).filter(
+            SupervisorProfile.user_id == current_user.id
+        ).first()
+        if not supervisor_profile or engagement.supervisor_profile_id != supervisor_profile.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have access to this engagement"
+            )
+
     return map_engagement_to_response(engagement)
 
 
@@ -298,10 +342,34 @@ def update_engagement(
     current_user: User = Depends(require_student),
     db: Session = Depends(get_db)
 ):
-    """Update an engagement (only if status is draft or edit_requested)."""
-    engagement = get_engagement_or_404(db, engagement_id, current_user)
+    """Update an engagement.
 
-    # Check status for update eligibility
+    Allowed only if status is draft, pending, or edit_requested.
+    NOT allowed if status is verified (immutable).
+    """
+    engagement = db.query(Engagement).filter(Engagement.id == engagement_id).first()
+    if not engagement:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Engagement not found"
+        )
+
+    # Verify ownership
+    student_profile = db.query(StudentProfile).filter(
+        StudentProfile.user_id == current_user.id
+    ).first()
+    if not student_profile or engagement.student_profile_id != student_profile.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have access to this engagement"
+        )
+
+    # Check status for update eligibility (verified and pending are immutable)
+    if engagement.status == EngagementStatus.VERIFIED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot update engagement. Verified engagements are immutable."
+        )
     if engagement.status not in [EngagementStatus.DRAFT, EngagementStatus.EDIT_REQUESTED]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -369,23 +437,44 @@ def update_engagement(
     return map_engagement_to_response(engagement)
 
 
-@router.delete("/{engagement_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{engagement_id}")
 def delete_engagement(
     engagement_id: UUID,
     current_user: User = Depends(require_student),
     db: Session = Depends(get_db)
 ):
-    """Delete an engagement (only if status is draft)."""
-    engagement = get_engagement_or_404(db, engagement_id, current_user)
+    """Delete an engagement.
 
-    if engagement.status != EngagementStatus.DRAFT:
+    Allowed only if status is NOT verified (verified engagements are immutable).
+    """
+    engagement = db.query(Engagement).filter(Engagement.id == engagement_id).first()
+    if not engagement:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Engagement not found"
+        )
+
+    # Verify ownership
+    student_profile = db.query(StudentProfile).filter(
+        StudentProfile.user_id == current_user.id
+    ).first()
+    if not student_profile or engagement.student_profile_id != student_profile.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cannot delete engagement. Only draft engagements can be deleted."
+            detail="You don't have access to this engagement"
+        )
+
+    # Check status - verified engagements are immutable
+    if engagement.status == EngagementStatus.VERIFIED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot delete engagement. Verified engagements are immutable."
         )
 
     db.delete(engagement)
     db.commit()
+
+    return {"message": "Engagement deleted successfully"}
 
 
 @router.post("/{engagement_id}/submit", response_model=EngagementResponse)
@@ -411,29 +500,36 @@ def submit_engagement(
             detail="Organization name, role, and start date are required to submit"
         )
 
-    # Resolve supervisor if supervisor_ref provided
-    if engagement.supervisor_ref:
-        supervisor = None
-        # Try to find by ledger_id
-        supervisor = db.query(SupervisorProfile).filter(
-            SupervisorProfile.user.has(ledger_id=engagement.supervisor_ref)
+    # Validate supervisor_ref is present
+    if not engagement.supervisor_ref:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Supervisor reference is required to submit"
+        )
+
+    # Resolve supervisor from supervisor_ref (ledger_id or email)
+    supervisor = db.query(SupervisorProfile).join(User).filter(
+        User.ledger_id == engagement.supervisor_ref
+    ).first()
+
+    # Try by email if not found by ledger_id
+    if not supervisor:
+        supervisor = db.query(SupervisorProfile).join(User).filter(
+            User.email == engagement.supervisor_ref
         ).first()
 
-        # Try by email
-        if not supervisor:
-            from app.models import User as UserModel
-            supervisor_user = db.query(UserModel).filter(
-                UserModel.email == engagement.supervisor_ref
-            ).first()
-            if supervisor_user:
-                supervisor = db.query(SupervisorProfile).filter(
-                    SupervisorProfile.user_id == supervisor_user.id
-                ).first()
+    if not supervisor:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid supervisor reference"
+        )
 
-        if supervisor:
-            engagement.supervisor_profile_id = supervisor.id
+    # Assign supervisor_profile_id
+    engagement.supervisor_profile_id = supervisor.id
 
+    # Update status
     engagement.status = EngagementStatus.PENDING
+
     db.commit()
     db.refresh(engagement)
 
@@ -442,120 +538,47 @@ def submit_engagement(
 
 # ============== Supervisor Routes ==============
 
-@router.post("/{engagement_id}/verify", response_model=EngagementResponse)
-def verify_engagement(
-    engagement_id: UUID,
+@router.get("/supervisor/engagements/requests", response_model=List[EngagementListResponse])
+def get_supervisor_engagement_requests(
+    status_filter: Optional[str] = Query(None, description="Filter by status (all, pending, verified, rejected, edit_requested)"),
     current_user: User = Depends(require_supervisor),
     db: Session = Depends(get_db)
 ):
-    """Verify an engagement (pending -> verified)."""
-    engagement = get_engagement_or_404(db, engagement_id, current_user)
+    """Get all engagements assigned to or accessible by this supervisor.
 
-    # Validate transition
-    if not validate_status_transition(engagement.status, EngagementStatus.VERIFIED):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot verify engagement with status '{engagement.status.value}'"
-        )
-
+    Accessible engagements include:
+    - Engagements where supervisor_profile_id matches current supervisor
+    """
     # Get supervisor profile
     supervisor_profile = db.query(SupervisorProfile).filter(
         SupervisorProfile.user_id == current_user.id
     ).first()
 
     if not supervisor_profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Supervisor profile not found"
-        )
+        return []
 
-    # Set verification metadata
-    engagement.status = EngagementStatus.VERIFIED
-    engagement.supervisor_profile_id = supervisor_profile.id
-    engagement.verification_type = supervisor_profile.trust_tier
-    engagement.verified_at = datetime.now(timezone.utc)
-
-    # Generate block hash
-    import hashlib
-    payload = f"{engagement.id}:{supervisor_profile.id}:{engagement.verified_at.isoformat()}"
-    digest = hashlib.sha256(payload.encode()).hexdigest()
-    engagement.block_hash = f"0x{digest[:6]}...{digest[-4:]}"
-
-    # Update skill verification status
-    for es in engagement.engagement_skills:
-        es.skill.is_verified = True
-
-    db.commit()
-    db.refresh(engagement)
-
-    return map_engagement_to_response(engagement)
-
-
-@router.post("/{engagement_id}/reject", response_model=EngagementResponse)
-def reject_engagement(
-    engagement_id: UUID,
-    rejection_type: str = Query(..., description="rejected or edit_requested"),
-    reason: str = Query(..., description="Reason for rejection or edit request"),
-    current_user: User = Depends(require_supervisor),
-    db: Session = Depends(get_db)
-):
-    """Reject or request edits for an engagement."""
-    if rejection_type not in ["rejected", "edit_requested"]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="rejection_type must be 'rejected' or 'edit_requested'"
-        )
-
-    engagement = get_engagement_or_404(db, engagement_id, current_user)
-
-    new_status = EngagementStatus.REJECTED if rejection_type == "rejected" else EngagementStatus.EDIT_REQUESTED
-
-    # Validate transition
-    if not validate_status_transition(engagement.status, new_status):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot {rejection_type} engagement with status '{engagement.status.value}'"
-        )
-
-    engagement.status = new_status
-    engagement.rejection_reason = reason
-
-    # Get supervisor profile
-    supervisor_profile = db.query(SupervisorProfile).filter(
-        SupervisorProfile.user_id == current_user.id
-    ).first()
-
-    if supervisor_profile:
-        engagement.supervisor_profile_id = supervisor_profile.id
-
-    db.commit()
-    db.refresh(engagement)
-
-    return map_engagement_to_response(engagement)
-
-
-# ============== Supervisor Request Queue ==============
-
-@router.get("/supervisor/requests", response_model=List[EngagementListResponse])
-def get_supervisor_requests(
-    status_filter: Optional[str] = Query(None, description="Filter by status"),
-    current_user: User = Depends(require_supervisor),
-    db: Session = Depends(get_db)
-):
-    """Get all pending engagement verification requests for supervisor."""
+    # Build query for supervisor's engagements
     query = db.query(Engagement).filter(
-        Engagement.status.in_([
-            EngagementStatus.PENDING,
-            EngagementStatus.EDIT_REQUESTED
-        ])
+        Engagement.supervisor_profile_id == supervisor_profile.id
     )
 
-    if status_filter:
+    # Apply status filter
+    if status_filter and status_filter.lower() != "all":
+        allowed_statuses = {"pending", "verified", "rejected", "edit_requested"}
+        status_lower = status_filter.lower()
+        if status_lower not in allowed_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status. Allowed values: all, {', '.join(sorted(allowed_statuses))}"
+            )
         try:
-            status_enum = EngagementStatus(status_filter)
+            status_enum = EngagementStatus(status_lower)
             query = query.filter(Engagement.status == status_enum)
         except ValueError:
-            pass
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status. Allowed values: all, {', '.join(sorted(allowed_statuses))}"
+            )
 
     engagements = query.order_by(Engagement.created_at.desc()).all()
 
@@ -571,3 +594,195 @@ def get_supervisor_requests(
         )
         for e in engagements
     ]
+
+
+@router.post("/{engagement_id}/approve", response_model=EngagementResponse)
+def approve_engagement(
+    engagement_id: UUID,
+    current_user: User = Depends(require_supervisor),
+    db: Session = Depends(get_db)
+):
+    """Approve an engagement (pending -> verified).
+
+    Only allowed if status is 'pending'.
+    Sets verification_type based on email domain vs organization match.
+    Generates block_hash for immutable proof.
+    Endorses all linked skills.
+    """
+    # Fetch engagement
+    engagement = db.query(Engagement).filter(Engagement.id == engagement_id).first()
+    if not engagement:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Engagement not found"
+        )
+
+    # Get supervisor profile
+    supervisor_profile = db.query(SupervisorProfile).filter(
+        SupervisorProfile.user_id == current_user.id
+    ).first()
+
+    if not supervisor_profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Supervisor profile not found"
+        )
+
+    # Verify supervisor is assigned to this engagement
+    if engagement.supervisor_profile_id != supervisor_profile.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not assigned to this engagement"
+        )
+
+    # Check status is pending
+    if engagement.status != EngagementStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot approve engagement with status '{engagement.status.value}'. Only pending engagements can be approved."
+        )
+
+    # Determine verification type based on email domain vs organization match
+    supervisor_email_domain = supervisor_profile.email_domain.lower()
+    org_name = engagement.organization_name.lower()
+
+    # Simple domain-in-org check
+    verification_type = VerificationType.INDEPENDENT
+    if supervisor_email_domain and any(
+        domain_part in org_name for domain_part in supervisor_email_domain.split('.')
+        if len(domain_part) > 2  # skip TLD parts like 'com', 'org'
+    ):
+        verification_type = VerificationType.INSTITUTIONAL
+
+    # Generate verification timestamp
+    verified_at = datetime.now(timezone.utc)
+
+    # Generate block hash from engagement_id, student_profile_id, supervisor_profile_id, timestamp
+    import hashlib
+    payload = f"{engagement.id}:{engagement.student_profile_id}:{supervisor_profile.id}:{verified_at.isoformat()}"
+    digest = hashlib.sha256(payload.encode()).hexdigest()
+    block_hash = f"0x{digest[:6]}...{digest[-4:]}"
+
+    # Update engagement in single transaction
+    engagement.status = EngagementStatus.VERIFIED
+    engagement.supervisor_profile_id = supervisor_profile.id
+    engagement.verification_type = verification_type
+    engagement.verified_at = verified_at
+    engagement.block_hash = block_hash
+
+    # Endorse all linked skills (mark as verified)
+    for es in engagement.engagement_skills:
+        es.skill.is_verified = True
+
+    db.commit()
+    db.refresh(engagement)
+
+    return map_engagement_to_response(engagement)
+
+
+@router.post("/{engagement_id}/reject", response_model=EngagementResponse)
+def reject_engagement(
+    engagement_id: UUID,
+    request_data: RejectEngagementRequest,
+    current_user: User = Depends(require_supervisor),
+    db: Session = Depends(get_db)
+):
+    """Reject an engagement (pending -> rejected).
+
+    Only allowed if status is 'pending'.
+    """
+    # Fetch engagement
+    engagement = db.query(Engagement).filter(Engagement.id == engagement_id).first()
+    if not engagement:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Engagement not found"
+        )
+
+    # Get supervisor profile
+    supervisor_profile = db.query(SupervisorProfile).filter(
+        SupervisorProfile.user_id == current_user.id
+    ).first()
+
+    if not supervisor_profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Supervisor profile not found"
+        )
+
+    # Verify supervisor is assigned to this engagement
+    if engagement.supervisor_profile_id != supervisor_profile.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not assigned to this engagement"
+        )
+
+    # Check status is pending
+    if engagement.status != EngagementStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot reject engagement with status '{engagement.status.value}'. Only pending engagements can be rejected."
+        )
+
+    # Update engagement
+    engagement.status = EngagementStatus.REJECTED
+    engagement.rejection_reason = request_data.reason
+
+    db.commit()
+    db.refresh(engagement)
+
+    return map_engagement_to_response(engagement)
+
+
+@router.post("/{engagement_id}/request-edit", response_model=EngagementResponse)
+def request_edit_engagement(
+    engagement_id: UUID,
+    request_data: RequestEditEngagementRequest,
+    current_user: User = Depends(require_supervisor),
+    db: Session = Depends(get_db)
+):
+    """Request edits on an engagement (pending -> edit_requested).
+
+    Only allowed if status is 'pending'.
+    """
+    # Fetch engagement
+    engagement = db.query(Engagement).filter(Engagement.id == engagement_id).first()
+    if not engagement:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Engagement not found"
+        )
+
+    # Get supervisor profile
+    supervisor_profile = db.query(SupervisorProfile).filter(
+        SupervisorProfile.user_id == current_user.id
+    ).first()
+
+    if not supervisor_profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Supervisor profile not found"
+        )
+
+    # Verify supervisor is assigned to this engagement
+    if engagement.supervisor_profile_id != supervisor_profile.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not assigned to this engagement"
+        )
+
+    # Check status is pending
+    if engagement.status != EngagementStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot request edits on engagement with status '{engagement.status.value}'. Only pending engagements can be requested for edits."
+        )
+
+    # Update engagement
+    engagement.status = EngagementStatus.EDIT_REQUESTED
+    engagement.rejection_reason = request_data.reason
+
+    db.commit()
+    db.refresh(engagement)
+
+    return map_engagement_to_response(engagement)
