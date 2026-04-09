@@ -252,7 +252,7 @@ def create_engagement(
 
 @router.get("", response_model=List[EngagementListResponse])
 def list_engagements(
-    status: Optional[str] = Query(None, alias="status", description="Filter by status"),
+    status_filter: Optional[str] = Query(None, alias="status", description="Filter by status"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -280,8 +280,8 @@ def list_engagements(
         )
 
     # Validate and apply status filter
-    if status:
-        status_lower = status.lower()
+    if status_filter:
+        status_lower = status_filter.lower()
         if status_lower not in allowed_statuses:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -561,7 +561,7 @@ def submit_engagement(
 
 @router.get("/supervisor/engagements/requests", response_model=List[EngagementListResponse])
 def get_supervisor_engagement_requests(
-    status_filter: Optional[str] = Query(None, description="Filter by status (all, pending, verified, rejected, edit_requested)"),
+    status_filter: Optional[str] = Query(None, alias="status", description="Filter by status (all, pending, verified, rejected, edit_requested)"),
     current_user: User = Depends(require_supervisor),
     db: Session = Depends(get_db)
 ):
