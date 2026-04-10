@@ -29,17 +29,29 @@
    - [GET /supervisor/me](#get-supervisorme)
    - [PUT /supervisor/me](#put-supervisorme)
    - [GET /supervisor/{supervisor_id}/public](#get-supervisorsupervisor_idpublic)
-9. [Routes — Skills (`/skills`)](#routes--skills-skills)
-   - [GET /skills/search](#get-skillssearch)
-   - [GET /skills](#get-skills)
-   - [POST /skills](#post-skills)
-   - [DELETE /skills/{skill_id}](#delete-skillsskill_id)
-10. [Data Schemas Reference](#data-schemas-reference)
-11. [Auto-Generated Fields](#auto-generated-fields)
-12. [Trust Tier Logic](#trust-tier-logic)
-13. [Frontend Integration Notes](#frontend-integration-notes)
-14. [CORS Configuration](#cors-configuration)
-15. [Environment Variables](#environment-variables)
+9. [Routes — Student Engagements (`/engagements`)](#routes--student-engagements-engagements)
+   - [POST /engagements](#post-engagements)
+   - [GET /engagements](#get-engagements)
+   - [GET /engagements/:id](#get-engagementsid)
+   - [PUT /engagements/:id](#put-engagementsid)
+   - [DELETE /engagements/:id](#delete-engagementsid)
+   - [POST /engagements/:id/submit](#post-engagementsidsubmit)
+10. [Routes — Supervisor Engagements (`/supervisor/engagements`)](#routes--supervisor-engagements-supervisorengagements)
+    - [GET /supervisor/engagements/requests](#get-supervisorengagementsrequests)
+    - [POST /engagements/:id/approve](#post-engagementsidapprove)
+    - [POST /engagements/:id/reject](#post-engagementsidreject)
+    - [POST /engagements/:id/request-edit](#post-engagementsidrequested-edit)
+11. [Routes — Skills (`/skills`)](#routes--skills-skills)
+    - [GET /skills/search](#get-skillssearch)
+    - [GET /skills](#get-skills)
+    - [POST /skills](#post-skills)
+    - [DELETE /skills/{skill_id}](#delete-skillsskill_id)
+12. [Data Schemas Reference](#data-schemas-reference)
+13. [Auto-Generated Fields](#auto-generated-fields)
+14. [Trust Tier Logic](#trust-tier-logic)
+15. [Frontend Integration Notes](#frontend-integration-notes)
+16. [CORS Configuration](#cors-configuration)
+17. [Environment Variables](#environment-variables)
 
 ---
 
@@ -161,6 +173,31 @@ The API customises 422 errors to a flat list of field-level messages:
 | ----------------- | ----------------------------------------------------------------- |
 | `"institutional"` | Supervisor's email domain matches their provided organization     |
 | `"independent"`   | Email domain does not match organisation (default at signup)      |
+
+### `EngagementStatus`
+
+| Value              | Description                                                                 |
+| ------------------ | --------------------------------------------------------------------------- |
+| `"draft"`          | Created by student, not yet submitted for verification                      |
+| `"pending"`        | Submitted — awaiting supervisor action                                      |
+| `"verified"`       | Approved and cryptographically signed by supervisor; **immutable**          |
+| `"rejected"`       | Rejected by supervisor; student cannot resubmit                             |
+| `"edit_requested"` | Supervisor requested changes; student must update and resubmit              |
+
+**Status flow:**
+
+```
+draft → pending → verified
+               ↘ rejected
+               ↘ edit_requested → pending (on resubmit)
+```
+
+### `VerificationType`
+
+| Value             | Description                                                                 |
+| ----------------- | --------------------------------------------------------------------------- |
+| `"institutional"` | Supervisor's email domain matches the engagement organisation               |
+| `"independent"`   | Supervisor's email domain does not match the engagement organisation        |
 
 ---
 
@@ -1071,6 +1108,496 @@ Get a supervisor's public-facing profile by their **profile UUID** (`SupervisorP
 
 ---
 
+## Routes — Student Engagements (`/engagements`)
+
+All student engagement routes are prefixed with `/engagements`.
+
+> **Role guard:** `POST`, `PUT`, `DELETE`, and `POST /:id/submit` require `role = "student"`. `GET /engagements` and `GET /engagements/:id` accept both roles (response content is role-aware). A supervisor token will receive `403 Forbidden` on student-only endpoints.
+
+> **Profile guard:** `POST /engagements` (create) additionally requires `profile_complete = true`. An incomplete profile returns `403 Forbidden`.
+
+---
+
+### `POST /engagements`
+
+Create a new engagement record. Created engagements start in `draft` status and are not visible to the assigned supervisor until submitted.
+
+**Authentication:** Required — Bearer Token (`role = "student"` + `profile_complete = true`)
+
+**Request Body:** `application/json`
+
+```json
+{
+  "organization_name": "Acme Corp",
+  "role": "Backend Engineer Intern",
+  "start_date": "2025-06-01T00:00:00Z",
+  "end_date": "2025-08-31T00:00:00Z",
+  "summary": "Worked on the payments microservice team.",
+  "highlights": ["Reduced API latency by 40%", "Shipped 3 features to production"],
+  "links": ["https://github.com/alexcarter/payments-poc"],
+  "supervisor_ref": "PRV-SUP-8821",
+  "skills": ["Python", "FastAPI", "Docker"]
+}
+```
+
+#### Request Fields
+
+| Field               | Type                    | Required    | Notes                                                                 |
+| ------------------- | ----------------------- | ----------- | --------------------------------------------------------------------- |
+| `organization_name` | `string`                | ✅ Yes      | Name of the company/institution                                       |
+| `role`              | `string`                | ✅ Yes      | Role/position held during the engagement                              |
+| `start_date`        | `string` (ISO 8601 UTC) | ✅ Yes      | Engagement start date                                                 |
+| `end_date`          | `string` (ISO 8601 UTC) | ❌ Optional | Engagement end date; `null` if ongoing                                |
+| `summary`           | `string`                | ❌ Optional | Short description of the engagement                                   |
+| `highlights`        | `array` of `string`     | ❌ Optional | Notable achievements or bullet points                                 |
+| `links`             | `array` of `string`     | ❌ Optional | Supporting URLs (e.g. GitHub, portfolio)                              |
+| `supervisor_ref`    | `string`                | ❌ Optional | Supervisor's ledger ID (e.g. `PRV-SUP-8821`) or registered email; required at submit time |
+| `skills`            | `array` of `string`     | ❌ Optional | Skill names to associate; created or reused per student profile       |
+
+**Response `201 Created`:** Returns a full `EngagementResponse` object (see [Data Schemas Reference](#data-schemas-reference)).
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "student_profile_id": "7f6c1d20-a4b3-4c5e-8f9d-1a2b3c4d5e6f",
+  "supervisor_profile_id": null,
+  "supervisor_ref": "PRV-SUP-8821",
+  "organization_name": "Acme Corp",
+  "role": "Backend Engineer Intern",
+  "start_date": "2025-06-01T00:00:00Z",
+  "end_date": "2025-08-31T00:00:00Z",
+  "summary": "Worked on the payments microservice team.",
+  "highlights": ["Reduced API latency by 40%", "Shipped 3 features to production"],
+  "links": ["https://github.com/alexcarter/payments-poc"],
+  "status": "draft",
+  "rejection_reason": null,
+  "verified_at": null,
+  "block_hash": null,
+  "verification_type": null,
+  "created_at": "2026-04-10T08:00:00Z",
+  "updated_at": "2026-04-10T08:00:00Z",
+  "skills": [
+    { "id": "a1b2c3d4-...", "name": "python" },
+    { "id": "b2c3d4e5-...", "name": "fastapi" },
+    { "id": "c3d4e5f6-...", "name": "docker" }
+  ]
+}
+```
+
+#### Possible Errors
+
+| Status | `detail` value                                                              | When it occurs                                             | Frontend action                                       |
+| ------ | --------------------------------------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------- |
+| `400`  | `"Duplicate engagement: similar engagement already exists..."`              | Same org + role + non-rejected engagement already exists   | Toast: "A similar engagement already exists"          |
+| `401`  | `"Invalid authentication credentials"`                                      | Token missing, malformed, or expired                       | Clear token, redirect to login                        |
+| `403`  | `"User account is inactive"`                                                | Account deactivated                                        | Toast: "Account deactivated", redirect to login       |
+| `403`  | `"Student access required"`                                                 | Supervisor token used on student-only endpoint             | Redirect to correct dashboard                         |
+| `403`  | `"Complete your profile before creating engagements"`                       | Profile is incomplete (`institution` not set)              | Redirect to profile completion page                   |
+| `404`  | `"Student profile not found"`                                               | DB integrity issue                                         | Toast: "Profile error, contact support"               |
+| `422`  | `"Validation error"` + `errors[]`                                           | Missing required fields or wrong types                     | Map `errors[].field` to form field messages           |
+
+---
+
+### `GET /engagements`
+
+List engagements for the current user. Results are role-aware — students see their own engagements; supervisors see engagements assigned to them.
+
+**Authentication:** Required — Bearer Token (both roles)
+
+**Query Parameters:**
+
+| Parameter | Type     | Required    | Description                                                                         |
+| --------- | -------- | ----------- | ----------------------------------------------------------------------------------- |
+| `status`  | `string` | ❌ Optional | Filter by status. Omit or use `all` for no filter. See allowed values per role below |
+
+**Allowed `status` values by role:**
+
+| Role         | Allowed values                                              |
+| ------------ | ----------------------------------------------------------- |
+| `student`    | `all` · `draft` · `pending` · `verified` · `rejected` · `edit_requested` |
+| `supervisor` | `all` · `pending` · `verified` · `rejected` · `edit_requested` |
+
+**Response `200 OK`:** Returns an array of `EngagementListResponse` objects.
+
+```json
+[
+  {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "organization_name": "Acme Corp",
+    "role": "Backend Engineer Intern",
+    "start_date": "2025-06-01T00:00:00Z",
+    "end_date": "2025-08-31T00:00:00Z",
+    "status": "pending",
+    "verified_at": null
+  }
+]
+```
+
+#### Response Fields (`EngagementListResponse` item)
+
+| Field               | Type                                    | Description                                   |
+| ------------------- | --------------------------------------- | --------------------------------------------- |
+| `id`                | `string` (UUID)                         | Engagement UUID                               |
+| `organization_name` | `string`                                | Company/institution name                      |
+| `role`              | `string`                                | Role held                                     |
+| `start_date`        | `string` (ISO 8601 UTC)                 | Engagement start date                         |
+| `end_date`          | `string` (ISO 8601 UTC) \| `null`       | Engagement end date                           |
+| `status`            | `EngagementStatus`                      | Current status                                |
+| `verified_at`       | `string` (ISO 8601 UTC) \| `null`       | Verification timestamp (`null` if not verified) |
+
+> **Note:** Returns an empty array `[]` if no engagements exist. Never returns `404`.
+
+#### Possible Errors
+
+| Status | `detail` value                                    | When it occurs                                | Frontend action                  |
+| ------ | ------------------------------------------------- | --------------------------------------------- | -------------------------------- |
+| `400`  | `"Invalid status. Allowed values: ..."`           | `status` query param is not in allowed list   | Show filter error / reset filter |
+| `401`  | `"Invalid authentication credentials"`            | Token missing, malformed, or expired          | Clear token, redirect to login   |
+| `403`  | `"User account is inactive"`                      | Account deactivated                           | Toast + redirect to login        |
+
+---
+
+### `GET /engagements/:id`
+
+Get full details of a single engagement. Accessible by the **owner student** and the **assigned supervisor**.
+
+**Authentication:** Required — Bearer Token (both roles)
+
+**Path Parameter:**
+
+| Parameter       | Type            | Description         |
+| --------------- | --------------- | ------------------- |
+| `engagement_id` | `string` (UUID) | The engagement UUID |
+
+**Response `200 OK`:** Returns a full `EngagementResponse` object.
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "student_profile_id": "7f6c1d20-a4b3-4c5e-8f9d-1a2b3c4d5e6f",
+  "supervisor_profile_id": "8g7d2e30-b5c4-5d6f-9g0e-2b3c4d5e6f7a",
+  "supervisor_ref": "PRV-SUP-8821",
+  "organization_name": "Acme Corp",
+  "role": "Backend Engineer Intern",
+  "start_date": "2025-06-01T00:00:00Z",
+  "end_date": "2025-08-31T00:00:00Z",
+  "summary": "Worked on the payments microservice team.",
+  "highlights": ["Reduced API latency by 40%"],
+  "links": ["https://github.com/alexcarter/payments-poc"],
+  "status": "verified",
+  "rejection_reason": null,
+  "verified_at": "2025-09-02T14:22:00Z",
+  "block_hash": "0xabcdef...1234",
+  "verification_type": "institutional",
+  "created_at": "2026-04-10T08:00:00Z",
+  "updated_at": "2026-04-10T09:00:00Z",
+  "skills": [
+    { "id": "a1b2c3d4-...", "name": "python" }
+  ]
+}
+```
+
+> **Role note:** This endpoint is shared. The frontend should use the JWT `role` claim to decide whether to show supervisor action buttons (approve / reject / request-edit).
+
+#### Possible Errors
+
+| Status | `detail` value                            | When it occurs                                                      | Frontend action                  |
+| ------ | ----------------------------------------- | ------------------------------------------------------------------- | -------------------------------- |
+| `401`  | `"Invalid authentication credentials"`   | Token missing, malformed, or expired                                | Clear token, redirect to login   |
+| `403`  | `"You don't have access to this engagement"` | Student accessing another student's engagement, or supervisor not assigned | Show 403 page             |
+| `404`  | `"Engagement not found"`                  | No engagement with that UUID                                        | Show 404 page                    |
+
+---
+
+### `PUT /engagements/:id`
+
+Update an existing engagement. Only allowed when status is `draft` or `edit_requested`.
+
+**Authentication:** Required — Bearer Token (`role = "student"` only)
+
+**Path Parameter:**
+
+| Parameter       | Type            | Description         |
+| --------------- | --------------- | ------------------- |
+| `engagement_id` | `string` (UUID) | The engagement UUID |
+
+**Request Body:** `application/json` — all fields are optional; send only what you want to change.
+
+```json
+{
+  "organization_name": "Acme Corp",
+  "role": "Backend Engineer Intern",
+  "start_date": "2025-06-01T00:00:00Z",
+  "end_date": "2025-08-31T00:00:00Z",
+  "summary": "Updated summary.",
+  "highlights": ["Led backend refactor"],
+  "links": ["https://github.com/alexcarter/payments-poc"],
+  "supervisor_ref": "PRV-SUP-8821",
+  "skills": ["Python", "FastAPI"]
+}
+```
+
+#### Request Fields
+
+| Field               | Type                    | Required    | Notes                                                      |
+| ------------------- | ----------------------- | ----------- | ---------------------------------------------------------- |
+| `organization_name` | `string`                | ❌ Optional | Trimmed whitespace                                         |
+| `role`              | `string`                | ❌ Optional | Trimmed whitespace                                         |
+| `start_date`        | `string` (ISO 8601 UTC) | ❌ Optional |                                                            |
+| `end_date`          | `string` (ISO 8601 UTC) | ❌ Optional | Set to `null` if ongoing                                   |
+| `summary`           | `string`                | ❌ Optional |                                                            |
+| `highlights`        | `array` of `string`     | ❌ Optional | **Replaces** existing highlights                           |
+| `links`             | `array` of `string`     | ❌ Optional | **Replaces** existing links                                |
+| `supervisor_ref`    | `string`                | ❌ Optional | Supervisor ledger ID or email                              |
+| `skills`            | `array` of `string`     | ❌ Optional | **Replaces** all existing skill associations               |
+
+**Response `200 OK`:** Returns the updated `EngagementResponse` object.
+
+#### Possible Errors
+
+| Status | `detail` value                                                                   | When it occurs                                       | Frontend action                                   |
+| ------ | -------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------- |
+| `400`  | `"Duplicate engagement: similar engagement already exists"`                       | Edited fields collide with another engagement        | Toast: "A similar engagement already exists"      |
+| `401`  | `"Invalid authentication credentials"`                                            | Token missing, malformed, or expired                 | Clear token, redirect to login                    |
+| `403`  | `"You don't have access to this engagement"`                                      | Student does not own this engagement                 | Show 403 page                                     |
+| `403`  | `"Cannot update engagement. Verified engagements are immutable."`                 | Attempted to edit a `verified` engagement            | Disable edit UI for verified engagements          |
+| `403`  | `"Cannot update engagement. Only draft or edit_requested engagements can be updated."` | Attempted to edit a `pending` or `rejected` engagement | Disable edit on non-editable statuses        |
+| `404`  | `"Engagement not found"`                                                          | No engagement with that UUID                         | Show 404 page                                     |
+| `422`  | `"Validation error"` + `errors[]`                                                 | Wrong field types                                    | Map `errors[].field` to form field messages       |
+
+---
+
+### `DELETE /engagements/:id`
+
+Permanently delete an engagement. **Not** allowed if status is `verified` (verified records are immutable).
+
+**Authentication:** Required — Bearer Token (`role = "student"` only)
+
+**Path Parameter:**
+
+| Parameter       | Type            | Description         |
+| --------------- | --------------- | ------------------- |
+| `engagement_id` | `string` (UUID) | The engagement UUID |
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Engagement deleted successfully" }
+```
+
+#### Possible Errors
+
+| Status | `detail` value                                                    | When it occurs                                | Frontend action                            |
+| ------ | ----------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------ |
+| `401`  | `"Invalid authentication credentials"`                            | Token missing, malformed, or expired          | Clear token, redirect to login             |
+| `403`  | `"You don't have access to this engagement"`                      | Student does not own this engagement          | Show 403 page                              |
+| `403`  | `"Cannot delete engagement. Verified engagements are immutable."` | Attempted to delete a `verified` engagement   | Disable delete for verified engagements    |
+| `404`  | `"Engagement not found"`                                          | No engagement with that UUID                  | Show 404 page                              |
+
+---
+
+### `POST /engagements/:id/submit`
+
+Submit a `draft` engagement for supervisor verification. Transitions status `draft → pending`. The supervisor is resolved from `supervisor_ref` (ledger ID or email) and linked to the engagement at submit time.
+
+**Authentication:** Required — Bearer Token (`role = "student"` only)
+
+**Path Parameter:**
+
+| Parameter       | Type            | Description         |
+| --------------- | --------------- | ------------------- |
+| `engagement_id` | `string` (UUID) | The engagement UUID |
+
+**Request:** No body required.
+
+**Response `200 OK`:** Returns the updated `EngagementResponse` with `status: "pending"` and `supervisor_profile_id` now populated.
+
+#### Possible Errors
+
+| Status | `detail` value                                                                        | When it occurs                                         | Frontend action                                  |
+| ------ | ------------------------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------ |
+| `400`  | `"Cannot submit engagement with status '...'"` | Engagement is not in `draft` status                                  | Prevent submit button on non-draft engagements   |
+| `400`  | `"Organization name, role, start date, and end date are required to submit"`          | Engagement has missing required fields                 | Prompt user to fill in missing fields            |
+| `400`  | `"Supervisor reference is required to submit"`                                        | `supervisor_ref` is not set                            | Prompt user to add a supervisor reference        |
+| `400`  | `"Invalid supervisor reference"`                                                      | `supervisor_ref` does not match any supervisor account | Toast: "Supervisor not found"                    |
+| `401`  | `"Invalid authentication credentials"`                                                | Token missing, malformed, or expired                   | Clear token, redirect to login                   |
+| `403`  | `"You don't have access to this engagement"`                                          | Student does not own this engagement                   | Show 403 page                                    |
+| `404`  | `"Engagement not found"`                                                              | No engagement with that UUID                           | Show 404 page                                    |
+
+---
+
+## Routes — Supervisor Engagements (`/supervisor/engagements`)
+
+> **Role guard:** All endpoints in this section require `role = "supervisor"`. A student token will receive `403 Forbidden`.
+
+---
+
+### `GET /supervisor/engagements/requests`
+
+Get all engagements assigned to the current supervisor, optionally filtered by status.
+
+**Authentication:** Required — Bearer Token (`role = "supervisor"` only)
+
+**Query Parameters:**
+
+| Parameter | Type     | Required    | Description                                                    |
+| --------- | -------- | ----------- | -------------------------------------------------------------- |
+| `status`  | `string` | ❌ Optional | Filter by status. Allowed: `all` · `pending` · `verified` · `rejected` · `edit_requested` |
+
+**Response `200 OK`:** Returns an array of `EngagementListResponse` objects.
+
+```json
+[
+  {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "organization_name": "Acme Corp",
+    "role": "Backend Engineer Intern",
+    "start_date": "2025-06-01T00:00:00Z",
+    "end_date": "2025-08-31T00:00:00Z",
+    "status": "pending",
+    "verified_at": null
+  }
+]
+```
+
+> **Note:** Returns an empty array `[]` if no engagements are assigned. Never returns `404`.
+
+#### Possible Errors
+
+| Status | `detail` value                                    | When it occurs                                | Frontend action                  |
+| ------ | ------------------------------------------------- | --------------------------------------------- | -------------------------------- |
+| `400`  | `"Invalid status. Allowed values: ..."`           | `status` query param not in allowed list      | Reset filter                     |
+| `401`  | `"Invalid authentication credentials"`            | Token missing, malformed, or expired          | Clear token, redirect to login   |
+| `403`  | `"Student access required"`                       | Student token used on supervisor route        | Redirect to correct dashboard    |
+
+---
+
+### `POST /engagements/:id/approve`
+
+Approve an engagement and mark it as `verified`. Transitions `pending → verified`. Generates a `block_hash` as an immutable proof of verification and endorses all linked skills.
+
+**Authentication:** Required — Bearer Token (`role = "supervisor"` only)
+
+**Path Parameter:**
+
+| Parameter       | Type            | Description         |
+| --------------- | --------------- | ------------------- |
+| `engagement_id` | `string` (UUID) | The engagement UUID |
+
+**Request:** No body required.
+
+**Response `200 OK`:** Returns the updated `EngagementResponse` with `status: "verified"`, `verified_at`, `block_hash`, and `verification_type` populated.
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "status": "verified",
+  "verified_at": "2025-09-02T14:22:00Z",
+  "block_hash": "0xabcdef...1234",
+  "verification_type": "institutional",
+  "...": "..."
+}
+```
+
+#### Side Effects on Approval
+
+1. `status` set to `"verified"`
+2. `verified_at` set to the current UTC timestamp
+3. `block_hash` generated: `SHA-256(engagement_id:student_profile_id:supervisor_profile_id:verified_at)` — truncated to `0x{first6}...{last4}`
+4. `verification_type` resolved: `"institutional"` if supervisor's email domain matches the organisation name, otherwise `"independent"`
+5. All skills linked to this engagement are marked `is_verified = true`
+6. `rejection_reason` cleared to `null`
+
+#### Possible Errors
+
+| Status | `detail` value                                                                                 | When it occurs                                  | Frontend action                              |
+| ------ | ---------------------------------------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------- |
+| `400`  | `"Cannot approve engagement with status '...'. Only pending engagements can be approved."`     | Engagement is not `pending`                     | Disable approve button on non-pending items  |
+| `401`  | `"Invalid authentication credentials"`                                                          | Token missing, malformed, or expired            | Clear token, redirect to login               |
+| `403`  | `"You are not assigned to this engagement"`                                                     | Supervisor is not the assigned reviewer         | Show 403 page                                |
+| `404`  | `"Engagement not found"`                                                                        | No engagement with that UUID                    | Show 404 page                                |
+| `404`  | `"Supervisor profile not found"`                                                                | DB integrity issue                              | Toast: "Profile error, contact support"      |
+
+---
+
+### `POST /engagements/:id/reject`
+
+Reject an engagement with a required reason. Transitions `pending → rejected`.
+
+**Authentication:** Required — Bearer Token (`role = "supervisor"` only)
+
+**Path Parameter:**
+
+| Parameter       | Type            | Description         |
+| --------------- | --------------- | ------------------- |
+| `engagement_id` | `string` (UUID) | The engagement UUID |
+
+**Request Body:** `application/json`
+
+```json
+{ "reason": "The dates provided do not match our records." }
+```
+
+#### Request Fields
+
+| Field    | Type     | Required | Notes                                          |
+| -------- | -------- | -------- | ---------------------------------------------- |
+| `reason` | `string` | ✅ Yes   | Human-readable rejection reason for the student |
+
+**Response `200 OK`:** Returns the updated `EngagementResponse` with `status: "rejected"` and `rejection_reason` set.
+
+#### Possible Errors
+
+| Status | `detail` value                                                                                  | When it occurs                                  | Frontend action                              |
+| ------ | ----------------------------------------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------- |
+| `400`  | `"Cannot reject engagement with status '...'. Only pending engagements can be rejected."`       | Engagement is not `pending`                     | Disable reject button on non-pending items   |
+| `401`  | `"Invalid authentication credentials"`                                                           | Token missing, malformed, or expired            | Clear token, redirect to login               |
+| `403`  | `"You are not assigned to this engagement"`                                                      | Supervisor is not the assigned reviewer         | Show 403 page                                |
+| `404`  | `"Engagement not found"`                                                                         | No engagement with that UUID                    | Show 404 page                                |
+| `422`  | `"Validation error"` + `errors[]`                                                                | `reason` missing or wrong type                  | Require reason field before submission       |
+
+---
+
+### `POST /engagements/:id/request-edit`
+
+Request changes from the student. Transitions `pending → edit_requested`. The student will see the attached reason and can update + resubmit.
+
+**Authentication:** Required — Bearer Token (`role = "supervisor"` only)
+
+**Path Parameter:**
+
+| Parameter       | Type            | Description         |
+| --------------- | --------------- | ------------------- |
+| `engagement_id` | `string` (UUID) | The engagement UUID |
+
+**Request Body:** `application/json`
+
+```json
+{ "reason": "Please add a more detailed summary of your responsibilities." }
+```
+
+#### Request Fields
+
+| Field    | Type     | Required | Notes                                              |
+| -------- | -------- | -------- | -------------------------------------------------- |
+| `reason` | `string` | ✅ Yes   | Explanation of what the student needs to change    |
+
+**Response `200 OK`:** Returns the updated `EngagementResponse` with `status: "edit_requested"` and `rejection_reason` set to the provided reason.
+
+> **Note:** The `rejection_reason` field doubles as the edit-request message. Display it to the student as edit feedback, not a rejection.
+
+#### Possible Errors
+
+| Status | `detail` value                                                                                                    | When it occurs                                  | Frontend action                              |
+| ------ | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------- |
+| `400`  | `"Cannot request edits on engagement with status '...'. Only pending engagements can be requested for edits."`    | Engagement is not `pending`                     | Disable request-edit button on non-pending   |
+| `401`  | `"Invalid authentication credentials"`                                                                             | Token missing, malformed, or expired            | Clear token, redirect to login               |
+| `403`  | `"You are not assigned to this engagement"`                                                                        | Supervisor is not the assigned reviewer         | Show 403 page                                |
+| `404`  | `"Engagement not found"`                                                                                           | No engagement with that UUID                    | Show 404 page                                |
+| `422`  | `"Validation error"` + `errors[]`                                                                                  | `reason` missing or wrong type                  | Require reason field before submission       |
+
+---
+
 ## Routes — Skills (`/skills`)
 
 All routes in this section are prefixed with `/skills`.
@@ -1394,6 +1921,91 @@ These TypeScript-style type definitions mirror the Pydantic schemas exactly.
 {
   message: string;         // "Logged out successfully"
 }
+```
+
+### `EngagementCreate` (sent to `POST /engagements`)
+
+```typescript
+{
+  organization_name: string;
+  role: string;
+  start_date: string;                // ISO 8601 UTC
+  end_date?: string | null;          // ISO 8601 UTC
+  summary?: string | null;
+  highlights?: string[] | null;
+  links?: string[] | null;
+  supervisor_ref?: string | null;    // supervisor ledger_id or email
+  skills?: string[] | null;          // skill names
+}
+```
+
+### `EngagementUpdate` (sent to `PUT /engagements/:id`)
+
+```typescript
+// All fields optional — send only what changes
+{
+  organization_name?: string;
+  role?: string;
+  start_date?: string;
+  end_date?: string | null;
+  summary?: string | null;
+  highlights?: string[] | null;
+  links?: string[] | null;
+  supervisor_ref?: string | null;
+  skills?: string[] | null;          // replaces all existing skill associations
+}
+```
+
+### `EngagementResponse` (returned by all engagement detail endpoints)
+
+```typescript
+{
+  id: string;                          // UUID
+  student_profile_id: string;          // UUID
+  supervisor_profile_id: string | null; // UUID — null until submitted
+  supervisor_ref: string | null;       // ledger_id or email used at submit time
+  organization_name: string;
+  role: string;
+  start_date: string;                  // ISO 8601 UTC
+  end_date: string | null;             // ISO 8601 UTC
+  summary: string | null;
+  highlights: string[] | null;
+  links: string[] | null;
+  status: "draft" | "pending" | "verified" | "rejected" | "edit_requested";
+  rejection_reason: string | null;     // set on reject or request-edit
+  verified_at: string | null;          // ISO 8601 UTC — set on approve
+  block_hash: string | null;           // e.g. "0xabcdef...1234" — set on approve
+  verification_type: "institutional" | "independent" | null; // set on approve
+  created_at: string;                  // ISO 8601 UTC
+  updated_at: string;                  // ISO 8601 UTC
+  skills: SkillResponse[];             // associated skills
+}
+```
+
+### `EngagementListResponse` (returned by list endpoints)
+
+```typescript
+{
+  id: string;                          // UUID
+  organization_name: string;
+  role: string;
+  start_date: string;                  // ISO 8601 UTC
+  end_date: string | null;             // ISO 8601 UTC
+  status: "draft" | "pending" | "verified" | "rejected" | "edit_requested";
+  verified_at: string | null;          // ISO 8601 UTC
+}
+```
+
+### `RejectEngagementRequest` (sent to `POST /engagements/:id/reject`)
+
+```typescript
+{ reason: string; }
+```
+
+### `RequestEditEngagementRequest` (sent to `POST /engagements/:id/request-edit`)
+
+```typescript
+{ reason: string; }
 ```
 
 ---
