@@ -1,4 +1,4 @@
-# Provenancy API — Documentation
+﻿# Provenancy API — Documentation
 
 > **Version:** 1.0.0 · **Framework:** FastAPI · **Database:** PostgreSQL (Supabase) · **Auth:** JWT (HS256)
 > **Base URL (dev):** `http://localhost:8000`
@@ -36,8 +36,8 @@
    - [PUT /engagements/:id](#put-engagementsid)
    - [DELETE /engagements/:id](#delete-engagementsid)
    - [POST /engagements/:id/submit](#post-engagementsidsubmit)
-10. [Routes — Supervisor Engagements (`/supervisor/engagements`)](#routes--supervisor-engagements-supervisorengagements)
-    - [GET /supervisor/engagements/requests](#get-supervisorengagementsrequests)
+10. [Routes — Supervisor Engagements (`/engagements/supervisor/engagements`)](#routes--supervisor-engagements-engagementssupervisorengagements)
+    - [GET /engagements/supervisor/engagements/requests](#get-engagementssupervisorengagementsrequests)
     - [POST /engagements/:id/approve](#post-engagementsidapprove)
     - [POST /engagements/:id/reject](#post-engagementsidreject)
     - [POST /engagements/:id/request-edit](#post-engagementsidrequested-edit)
@@ -1426,13 +1426,13 @@ Submit a `draft` engagement for supervisor verification. Transitions status `dra
 
 ---
 
-## Routes — Supervisor Engagements (`/supervisor/engagements`)
+## Routes — Supervisor Engagements (`/engagements/supervisor/engagements`)
 
 > **Role guard:** All endpoints in this section require `role = "supervisor"`. A student token will receive `403 Forbidden`.
 
 ---
 
-### `GET /supervisor/engagements/requests`
+### `GET /engagements/supervisor/engagements/requests`
 
 Get all engagements assigned to the current supervisor, optionally filtered by status.
 

@@ -52,11 +52,11 @@
 
 ---
 
-## Supervisor Engagements `/supervisor/engagements`
+## Supervisor Engagements `/engagements/supervisor/engagements`
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/supervisor/engagements/requests?status=` | Supervisor's verification queue — filter by status |
+| GET | `/engagements/supervisor/engagements/requests?status=` | Supervisor's verification queue — filter by status |
 | POST | `/engagements/:id/approve` | Approve + sign engagement |
 | POST | `/engagements/:id/reject` | Reject with reason |
 | POST | `/engagements/:id/request-edit` | Request changes from student |
