@@ -184,10 +184,18 @@ def get_public_profile(
             start_date=eng.start_date,
             end_date=eng.end_date,
             verification_type=eng.verification_type,
-            verified_at=eng.verified_at
+            verified_at=eng.verified_at,
+            supervisor_profile_id=eng.supervisor_profile.id if eng.supervisor_profile else None,
+            supervisor_full_name=eng.supervisor_profile.full_name if eng.supervisor_profile else None,
+            summary=eng.summary,
+            highlights=eng.highlights,
+            links=eng.links,
+            skills=[SkillResponse(id=es.skill.id, name=es.skill.name) for es in eng.engagement_skills]
+
         )
         for eng in verified_engagements
     ]
+
 
     # Get user for ledger_id
     user = db.query(User).filter(User.id == profile.user_id).first()

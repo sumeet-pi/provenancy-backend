@@ -189,6 +189,7 @@ def get_public_profile(
     verified_engagement_list = [
         VerifiedEngagementSupervisorPublic(
             id=eng.id,
+            student_profile_id=eng.student_profile_id,
             student_full_name=eng.student_profile.full_name if eng.student_profile else "Unknown",
             organization_name=eng.organization_name,
             role=eng.role,

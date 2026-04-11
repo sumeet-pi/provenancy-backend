@@ -230,8 +230,15 @@ class VerifiedEngagementPublic(BaseModel):
     end_date: Optional[datetime] = None
     verification_type: Optional[VerificationType] = None
     verified_at: Optional[datetime] = None
+    supervisor_profile_id: Optional[UUID] = None
+    supervisor_full_name: Optional[str] = None
+    summary: Optional[str] = None
+    highlights: Optional[List[str]] = None
+    links: Optional[List[str]] = None
+    skills: List["SkillResponse"] = []
 
     model_config = ConfigDict(from_attributes=True)
+
 
 
 # ============== Supervisor Profile Update Schemas ==============
@@ -275,6 +282,7 @@ class SupervisorProfileUpdateResponse(BaseModel):
 class VerifiedEngagementSupervisorPublic(BaseModel):
     """Schema for verified engagement in supervisor public view."""
     id: UUID
+    student_profile_id: UUID
     student_full_name: str
     organization_name: str
     role: str
@@ -715,6 +723,7 @@ class EngagementListResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 # Update forward references
+VerifiedEngagementPublic.model_rebuild()
 StudentProfileUpdateResponse.model_rebuild()
 StudentPublicResponse.model_rebuild()
 SupervisorProfileUpdateResponse.model_rebuild()
