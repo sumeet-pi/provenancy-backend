@@ -3,6 +3,7 @@ Provenancy API - Main Application Entry Point
 
 A production-ready FastAPI backend server connected to PostgreSQL (Supabase).
 """
+import os
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
@@ -61,9 +62,14 @@ app = FastAPI(
 
 # ============== CORS Middleware ==============
 # Configure CORS to allow frontend to communicate with backend
+ALLOWED_ORIGINS = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:3000,http://localhost:5173"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact origins
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -164,6 +170,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=8000,
-        reload=True
+        port=int(os.getenv("PORT", 8000)),
+        reload=False  # False in production
     )

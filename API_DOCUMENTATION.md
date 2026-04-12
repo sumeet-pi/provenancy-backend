@@ -1,4 +1,4 @@
-﻿# Provenancy API — Documentation
+# Provenancy API — Documentation
 
 > **Version:** 1.0.0 · **Framework:** FastAPI · **Database:** PostgreSQL (Supabase) · **Auth:** JWT (HS256)
 > **Base URL (dev):** `http://localhost:8000`
@@ -824,7 +824,23 @@ Get a student's public-facing profile by their **profile UUID** (`StudentProfile
       "start_date": "2025-06-01T00:00:00Z",
       "end_date": "2025-08-31T00:00:00Z",
       "verification_type": "institutional",
-      "verified_at": "2025-09-02T14:22:00Z"
+      "verified_at": "2025-09-02T14:22:00Z",
+      "supervisor_profile_id": "8g7d2e30-b5c4-5d6f-9g0e-2b3c4d5e6f7a",
+      "supervisor_full_name": "James Vance",
+      "summary": "Worked on the payments microservice team.",
+      "highlights": [
+        "Reduced API latency by 40%",
+        "Shipped 3 features to production"
+      ],
+      "links": [
+        "https://github.com/alexcarter/payments-poc"
+      ],
+      "skills": [
+        {
+          "id": "e4c1f211-54b9-4d43-a65c-6b3281cda885",
+          "name": "python"
+        }
+      ]
     }
   ],
   "skills": {
@@ -861,15 +877,21 @@ Get a student's public-facing profile by their **profile UUID** (`StudentProfile
 
 #### `verified_engagements[]` Item Fields
 
-| Field               | Type                                          | Description                                  |
-| ------------------- | --------------------------------------------- | -------------------------------------------- |
-| `id`                | `string` (UUID)                               | Engagement UUID                              |
-| `organization_name` | `string`                                      | Name of the organisation                     |
-| `role`              | `string`                                      | Role held during the engagement              |
-| `start_date`        | `string` (ISO 8601 UTC)                       | Engagement start date                        |
-| `end_date`          | `string` (ISO 8601 UTC) \| `null`             | Engagement end date (null if ongoing)        |
-| `verification_type` | `"institutional"` \| `"independent"` \| `null` | Supervisor's trust tier at time of verification |
-| `verified_at`       | `string` (ISO 8601 UTC) \| `null`             | When the engagement was verified             |
+| Field                   | Type                                          | Description                                     |
+| ----------------------- | --------------------------------------------- | ----------------------------------------------- |
+| `id`                    | `string` (UUID)                               | Engagement UUID                                 |
+| `organization_name`     | `string`                                      | Name of the organisation                        |
+| `role`                  | `string`                                      | Role held during the engagement                 |
+| `start_date`            | `string` (ISO 8601 UTC)                       | Engagement start date                           |
+| `end_date`              | `string` (ISO 8601 UTC) \| `null`             | Engagement end date (null if ongoing)           |
+| `verification_type`     | `"institutional"` \| `"independent"` \| `null` | Supervisor's trust tier at time of verification |
+| `verified_at`           | `string` (ISO 8601 UTC) \| `null`             | When the engagement was verified                |
+| `supervisor_profile_id` | `string` (UUID) \| `null`                     | UUID of the verifying supervisor                |
+| `supervisor_full_name`  | `string` \| `null`                            | Name of the verifying supervisor                |
+| `summary`               | `string` \| `null`                            | Description of the work done                    |
+| `highlights`            | `array` (of strings) \| `null`                | Bullet points highlighting achievements         |
+| `links`                 | `array` (of strings) \| `null`                | Related URLs/portfolio links                    |
+| `skills`                | `array` (of objects)                          | Associated skills (`{id, name}`)                |
 
 #### `skills` Object Fields
 
@@ -1059,6 +1081,7 @@ Get a supervisor's public-facing profile by their **profile UUID** (`SupervisorP
   "verified_engagements": [
     {
       "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "student_profile_id": "7f6c1d20-a4b3-4c5e-8f9d-1a2b3c4d5e6f",
       "student_full_name": "Alex Carter",
       "organization_name": "Acme Corp",
       "role": "Backend Engineer Intern",
@@ -1091,6 +1114,7 @@ Get a supervisor's public-facing profile by their **profile UUID** (`SupervisorP
 | Field               | Type                                          | Description                                        |
 | ------------------- | --------------------------------------------- | -------------------------------------------------- |
 | `id`                | `string` (UUID)                               | Engagement UUID                                    |
+| `student_profile_id`| `string` (UUID)                               | Profile UUID of the student who submitted it       |
 | `student_full_name` | `string`                                      | Name of the student whose engagement was verified  |
 | `organization_name` | `string`                                      | Organisation for the engagement                    |
 | `role`              | `string`                                      | Role held during the engagement                    |
