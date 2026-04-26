@@ -4,9 +4,10 @@ Student profile routes for private and public access.
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func
 
 from app.database import get_db
-from app.models import User, StudentProfile, UserRole, Engagement, EngagementStatus, Skill
+from app.models import User, StudentProfile, UserRole, Engagement, EngagementStatus, Skill, EngagementSkill
 from app.schemas import (
     StudentProfileUpdateRequest,
     StudentProfileUpdateResponse,
@@ -211,15 +212,24 @@ def get_public_profile(
         for skill in declared_skills
     ]
 
-    # Get verified skills (is_verified = True)
-    verified_skills = db.query(Skill).filter(
+    # Get verified skills - count by counting verified engagements that have each skill
+    verified_skill_names = db.query(Skill.name).filter(
         Skill.student_profile_id == profile.id,
         Skill.is_verified == True
-    ).all()
+    ).distinct().all()
 
     verified_counts: dict[str, int] = {}
-    for skill in verified_skills:
-        verified_counts[skill.name] = verified_counts.get(skill.name, 0) + 1
+    for (skill_name,) in verified_skill_names:
+        count = db.query(func.count(Engagement.id)).join(
+            EngagementSkill, Engagement.id == EngagementSkill.engagement_id
+        ).join(
+            Skill, EngagementSkill.skill_id == Skill.id
+        ).filter(
+            Engagement.student_profile_id == profile.id,
+            Engagement.status == EngagementStatus.VERIFIED,
+            Skill.name == skill_name
+        ).scalar() or 0
+        verified_counts[skill_name] = count
 
     verified_response = [
         VerifiedSkillItem(name=name, count=count)

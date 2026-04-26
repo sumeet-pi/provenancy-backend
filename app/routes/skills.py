@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import case, func
 
 from app.database import get_db
-from app.models import User, Skill, SkillMaster, StudentProfile
+from app.models import User, Skill, SkillMaster, StudentProfile, Engagement, EngagementSkill, EngagementStatus
 from app.schemas import (
     SkillCreateRequest,
     SkillBulkCreateRequest,
@@ -86,16 +86,27 @@ def get_skills(
         for skill in declared_skills
     ]
 
-    # Get verified skills (is_verified = True)
-    verified_skills = db.query(Skill).filter(
+    # Get verified skills - count by counting verified engagements that have each skill
+    # First get all skills that have been verified (is_verified = True)
+    verified_skill_names = db.query(Skill.name).filter(
         Skill.student_profile_id == student_profile.id,
         Skill.is_verified == True
-    ).all()
+    ).distinct().all()
 
-    # Group by name and count occurrences
+    # For each verified skill, count how many verified engagements have it
     verified_counts: dict[str, int] = {}
-    for skill in verified_skills:
-        verified_counts[skill.name] = verified_counts.get(skill.name, 0) + 1
+    for (skill_name,) in verified_skill_names:
+        # Count engagements that are verified AND have this skill
+        count = db.query(func.count(Engagement.id)).join(
+            EngagementSkill, Engagement.id == EngagementSkill.engagement_id
+        ).join(
+            Skill, EngagementSkill.skill_id == Skill.id
+        ).filter(
+            Engagement.student_profile_id == student_profile.id,
+            Engagement.status == EngagementStatus.VERIFIED,
+            Skill.name == skill_name
+        ).scalar() or 0
+        verified_counts[skill_name] = count
 
     verified_response = [
         VerifiedSkillItem(name=name, count=count)
